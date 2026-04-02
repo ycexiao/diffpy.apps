@@ -15,36 +15,31 @@ from diffpy.structure.parsers import getParser
 
 
 class PDFAdapter:
-    """Adapter to expose PDF fitting interface. Designed to provide a
-    simplified PDF fitting interface for human users and AI agents.
+    """Build and configure a PDF fitting workflow backed by
+    diffpy.srfit.
 
-    Attributes
-    ----------
-    recipe : FitRecipe
-        The FitRecipe object managing the fitting process.
+    The adapter assembles the profile, structure generators, contribution,
+    and recipe objects required for a PDF refinement, then exposes the fit
+    results in a JSON-compatible dictionary.
 
-    Methods
-    -------
-    initialize_profile(profile_path, qmin=None, qmax=None, xmin=None, xmax=None, dx=None)
-        Load and initialize the PDF profile from the given file path with
-        some optional parameters.
-    initialize_structures(structure_paths : list[str], run_parallel=True)
-        Load and initialize the structures from the given file paths, and
-        generate corresponding PDFGenerator objects.
+    Public methods
+    --------------
+    initialize_profile(profile_path: str, q_range=None, calculation_range=None)
+        Load the experimental PDF profile.
+    initialize_structures(
+        structure_paths: list[str], run_parallel=True, spacegroups=None,
+        names=None
+    )
+        Load structures and create PDFGenerator objects for them.
     initialize_contribution(equation_string=None)
-        Initialize the FitContribution object combining the PDF generators and
-        the profile.
+        Create the FitContribution from the loaded profile and generators.
     initialize_recipe()
-        Initialize the FitRecipe object for the fitting process.
-    set_initial_variable_values(variable_name_to_value : dict)
-        Update parameter values from the provided dictionary.
-    refine_variables(variable_names: list[str])
-        Refine the parameters specified in the list and in that order.
-    get_variable_names()
-        Get the names of all variables in the recipe.
-    save_results(mode: str, filename: str=None)
-        Save the fitting results.
-    """  # noqa: E501
+        Create the FitRecipe for the current contribution.
+    set_initial_variable_values(variable_name_to_value: dict)
+        Set recipe parameter values by name.
+    get_results()
+        Return the current fit results as a JSON-compatible dictionary.
+    """
 
     def initialize_profile(
         self,
@@ -52,23 +47,19 @@ class PDFAdapter:
         q_range=None,
         calculation_range=None,
     ):
-        """Load and initialize the PDF profile from the given file path
-        with some optional parameters.
-
-        The target output, FitRecipe, requires a profile object, multiple
-        PDFGenerator objects, and a FitContribution object combining them. This
-        method initializes the profile object.
+        """Load the experimental PDF profile.
 
         Parameters
         ----------
         profile_path : str
             The path to the experimental PDF profile file.
-        q_range: list or tuple of two floats.
-            The qmin and qmax for PDF calculation. The default value is None,
-            which means using the values parsed from the profile file.
-        calculation_range : list or tuple of three floats.
-            The rmin, rmax, and r step for PDF calculation. The default value
-            is None, which means using the range parsed from the profile file.
+        q_range : sequence of float, optional
+            The two-element sequence containing qmin and qmax. When omitted,
+            the values parsed from the profile file are used.
+        calculation_range : list or tuple of three floats, optional
+            The three-element sequence or mapping defining xmin, xmax, and dx
+            for the calculation range. When omitted, the range parsed from the
+            profile file is used.
         """
         profile = Profile()
         parser = PDFParser()
@@ -94,39 +85,42 @@ class PDFAdapter:
         spacegroups=None,
         names=None,
     ):
-        """Load and initialize the structures from the given file paths,
-        and generate corresponding PDFGenerator objects.
+        """Load structures and create PDFGenerator objects for them.
 
-        The target output, FitRecipe, requires a profile object, multiple
-        PDFGenerator objects, and a FitContribution object combining them. This
-        method creates the PDFGenerator objects from the structure files.
-
-        Must be called after initialize_profile.
+        This method should be called after initialize_profile.
 
         Parameters
         ----------
         structure_paths : list of str
-            The list of paths to the structure files (CIF format).
+            The paths to structure files in CIF format.
         run_parallel : bool
+            If True, enable generator parallelization when the optional
+            dependencies are available.
         spacegroups : list of str or None
-            The space group for each structure. If None, the space group will
-            be determined automatically from the structure file. The default is
-            None.
-        names: list of str or None
-            The names for each structure. If None, default names "G1", "G2",
-            ... will be assigned. The default is None.
-
-        Notes
-        -----
-        Planned features:
-            - Support cif file manipulation.
-                - Add/Remove atoms.
-                - symmetry operations?
+            The space groups are inferred from the parsed CIF
+            files when available and otherwise default to "P1". They will be
+            used to impose symmetry constraints on the structure parameters
+            during fitting.
+        names : list of str or None
+            The names assigned to the generators. Missing names default to
+            "G1", "G2", and so on.
         """
         if isinstance(structure_paths, str):
             structure_paths = [structure_paths]
         structures = []
-        spacegroups = []
+        have_spacegroups = False
+        if spacegroups is not None:
+            if len(spacegroups) != len(structure_paths):
+                raise ValueError(
+                    f"spacegroups list {spacegroups} must match "
+                    f"structure_paths list {structure_paths}. "
+                    "Please provide a space group for each structure or set "
+                    "spacegroups to None to infer them automatically."
+                )
+            else:
+                have_spacegroups = True
+        if not have_spacegroups:
+            spacegroups = []
         pdfgenerators = []
         if run_parallel:
             try:
@@ -156,7 +150,8 @@ class PDFAdapter:
             sg = getattr(stru_parser, "spacegroup", None)
             spacegroup = sg.short_name if sg is not None else "P1"
             structures.append(structure)
-            spacegroups.append(spacegroup)
+            if not have_spacegroups:
+                spacegroups.append(spacegroup)
             pdfgenerator = PDFGenerator(name)
             pdfgenerator.setStructure(structure)
             if run_parallel:
@@ -166,31 +161,21 @@ class PDFAdapter:
         self.pdfgenerators = pdfgenerators
 
     def initialize_contribution(self, equation_string=None):
-        """Initialize the FitContribution object combining the PDF
-        generators and the profile.
-
-        The target output, FitRecipe, requires a profile object, multiple
-        PDFGenerator objects, and a FitContribution object combining them. This
-        method creates the FitContribution object combining the profile and PDF
+        """Create the FitContribution from the loaded profile and
         generators.
 
-        Must be called after initialize_profile and initialize_structures.
+        This method should be called after initialize_profile and
+        initialize_structures.
 
         Parameters
         ----------
-        equation_string : str
-            The equation string defining the contribution. The default
-            equation will be generated based on the number of phases.
-            e.g.
-            for one phase: "s0*G1",
-            for two phases: "s0*(s1*G1+(1-s1)*G2)",
-            for three phases: "s0*(s1*G1+s2*G2+(1-(s1+s2))*G3)",
-            ...
+        equation_string : str, optional
+            Equation passed to FitContribution.setEquation.
 
-        Notes
-        -----
-        Planned features:
-            - Support registerFunction for custom equations.
+        Returns
+        -------
+        FitContribution
+            The configured contribution object.
         """
         contribution = FitContribution("pdfcontribution")
         contribution.setProfile(self.profile)
@@ -203,25 +188,12 @@ class PDFAdapter:
     def initialize_recipe(
         self,
     ):
-        """Initialize the FitRecipe object for the fitting process.
+        """Create the FitRecipe for the current contribution.
 
-        The target output, FitRecipe, requires a profile object, multiple
-        PDFGenerator objects, and a FitContribution object combining them. This
-        method creates the FitRecipe object combining the profile, PDF
-        generators, and contribution.
-
-        Except delta1, delta2, qdamp, qbroad, and the spacegroup parameters,
-        other parameters are not added to the recipe by default.
-
-        Must be called after initialize_contribution.
-
-        Notes
-        -----
-        Planned features:
-            - support instructions to
-                - add variables
-                - constrain variables of the scatters
-                - change symmetry constraints
+        This method should be called after initialize_contribution. The
+        recipe includes shared qdamp and qbroad variables, per-generator
+        delta1 and delta2 variables, and structure parameters
+        constrained by the space group.
         """
 
         recipe = FitRecipe()
@@ -259,24 +231,25 @@ class PDFAdapter:
         self.recipe = recipe
 
     def set_initial_variable_values(self, variable_name_to_value: dict):
-        """Update parameter values from the provided dictionary.
+        """Set recipe parameter values by name.
 
         Parameters
         ----------
         variable_name_to_value : dict
-            A dictionary mapping variable names to their new values.
+            Mapping from recipe variable names to new values.
         """
         for vname, vvalue in variable_name_to_value.items():
             self.recipe._parameters[vname].setValue(vvalue)
 
     def get_results(self):
-        """Save the fitting results. Must be called after
-        refine_variables.
+        """Return the current fit results as a JSON-compatible
+        dictionary.
 
         Returns
         -------
         dict
-            The fitting results in a JSON-compatible dictionary format.
+            Residual statistics, variable values, constraints, the covariance
+            matrix, and a certainty flag.
         """
         fit_results = FitResults(self.recipe)
         results_dict = {}
