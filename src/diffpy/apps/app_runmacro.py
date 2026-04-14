@@ -10,7 +10,7 @@ from diffpy.apps.pdfadapter import PDFAdapter
 grammar = r"""
 Program:
     commands*=Command
-    variable=VariableBlock
+    variable=VariableBlock?
 ;
 
 Command:
@@ -86,9 +86,22 @@ class MacroParser:
     def load_command_processor(self, command):
         if command.component == "structure":
             # TODO: support multiple structures input in the future
+            if (
+                self.inputs.get("initialize_structures.structure_paths")
+                is not None
+            ):
+                raise ValueError(
+                    "Multiple structures are not supported by `runmacro` yet. "
+                    "Please use python script instead."
+                )
             key = "initialize_structures.structure_paths"
             variable = "structure"
         elif command.component == "profile":
+            if self.inputs.get("initialize_profile.profile_path") is not None:
+                raise ValueError(
+                    "Multiple profiles are not supported by `runmacro`. "
+                    "Please use python script instead."
+                )
             key = "initialize_profile.profile_path"
             variable = "profile"
         else:
