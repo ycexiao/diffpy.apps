@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import numpy
@@ -186,7 +187,7 @@ def test_command_processor(
         (
             'load structure foo from "/nonexistent/path.cif"',
             FileNotFoundError,
-            "structure /nonexistent/path.cif not found. "
+            f"structure {Path('/nonexistent/path.cif')} not found. "
             "Please ensure the path is correct and the file exists.",
         ),
         (
@@ -207,5 +208,5 @@ def test_command_processor(
 )
 def test_load_command_processor_bad(command_string, expected_exception, match):
     parser = MacroParser()
-    with pytest.raises(expected_exception, match=match):
+    with pytest.raises(expected_exception, match=re.escape(match)):
         parser.parse(command_string)
