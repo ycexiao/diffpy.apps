@@ -19,4 +19,3 @@ Release notes
 **Changed:**
 
 * Use ``python=3.13`` as default before ``python=3.14`` is supported by ``diffpy.cmi``.
-
