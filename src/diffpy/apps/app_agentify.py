@@ -23,12 +23,11 @@ def ensure_setup():
 
 def agentify(args):
     if not ensure_setup():
-        print(
+        raise ValueError(
             "Internet connection or git unavailable. "
             "Please ensure git is installed and you have an active internet "
             f"connection to {REPO_URL}."
         )
-        return
     agent = args.agent
     system_flag = args.system
     if agent == "claude":
