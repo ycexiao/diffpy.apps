@@ -1,4 +1,5 @@
 import shutil
+import socket
 import subprocess
 import tempfile
 from pathlib import Path
@@ -7,7 +8,27 @@ REPO_URL = "https://github.com/diffpy/cmi-agent-skills"
 DIR_NAME = "cmi-skill"
 
 
+def ensure_setup():
+    def internet_available():
+        try:
+            socket.create_connection(("github.com", 443), timeout=3)
+            return True
+        except OSError:
+            return False
+
+    git_available = shutil.which("git") is not None
+    agentify_available = internet_available() and git_available
+    return agentify_available
+
+
 def agentify(args):
+    if not ensure_setup():
+        print(
+            "Internet connection or git unavailable. "
+            "Please ensure git is installed and you have an active internet "
+            f"connection to {REPO_URL}."
+        )
+        return
     agent = args.agent
     system_flag = args.system
     if agent == "claude":
