@@ -6,7 +6,13 @@ from unittest import mock
 
 import pytest
 
-from diffpy.apps.app_agentify import agentify
+from diffpy.apps.app_agentify import agentify, ensure_setup
+
+pytestmark = pytest.mark.skipif(
+    not ensure_setup(),
+    reason="Internet connection or git unavailable. Skipping agentify tests.",
+    allow_module_level=True,
+)
 
 
 @pytest.mark.parametrize(
