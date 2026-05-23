@@ -1,6 +1,4 @@
 import json
-import shutil
-import socket
 from pathlib import Path
 
 import pytest
@@ -19,15 +17,3 @@ def user_filesystem(tmp_path):
         json.dump(home_config_data, f)
 
     yield tmp_path
-
-
-def internet_available():
-    try:
-        socket.create_connection(("github.com", 443), timeout=3)
-        return True
-    except OSError:
-        return False
-
-
-git_available = shutil.which("git") is not None
-AGENTIFY_AVAILABLE = internet_available() and git_available
