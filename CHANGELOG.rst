@@ -4,6 +4,14 @@ Release notes
 
 .. current developments
 
+0.1.1
+=====
+
+**Added:**
+
+* Ensure ``git`` is installed and internet connection for ``agentify``.
+
+
 0.1.0
 =====
 
