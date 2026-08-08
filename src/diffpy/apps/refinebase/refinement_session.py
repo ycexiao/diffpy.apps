@@ -1,4 +1,4 @@
-from diffpy.srfit.fitbase.parameter import ParameterSet
+from diffpy.srfit.fitbase.parameterset import ParameterSet
 
 
 class RefinementSession(ParameterSet):

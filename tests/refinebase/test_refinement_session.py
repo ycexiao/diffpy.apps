@@ -1,17 +1,17 @@
-from diffpy.srreal.pdfcalculator import PDFCalculator
-from diffpy.apps.refinebase.refinement_session import RefinementSession
 from diffpy.apps.refinebase.parsers import (
-    ProfileParser,
-    StructureParser,
     ParameterAdapter,
+    ParameterParser,
 )
+from diffpy.apps.refinebase.refinement_session import RefinementSession
+from diffpy.srreal.pdfcalculator import PDFCalculator
 
 
 def test_refinement_session():
+    parser = ParameterParser()
     profile_path = "tests/data/Ni.gr"
     structure_path = "tests/data/Ni.cif"
-    profile_parset = ProfileParser(profile_path)
-    structure_parset = StructureParser(structure_path)
+    profile_parset, profile_meta = parser._parse_pdf(profile_path)
+    structure_parset = parser._parse_structure(structure_path)
 
     session = RefinementSession()
     session.addParameterSet(profile_parset)
