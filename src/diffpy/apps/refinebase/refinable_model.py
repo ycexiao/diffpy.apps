@@ -1,10 +1,23 @@
 from pathlib import Path
 
+from diffpy.srfit.fitbase import Profile
 from diffpy.srfit.fitbase.parameter import Parameter
 from diffpy.srfit.fitbase.parameterset import ParameterSet
 from diffpy.srfit.pdf.pdfparser import PDFParser
 from diffpy.srfit.structure import struToParameterSet
 from diffpy.structure import Structure
+
+
+class RefinenableModel(ParameterSet):
+    """
+    A RefinenableModel instance provides access to both the ParameterSet
+    and the underlying model object.
+    """
+
+    def __init__(self, name):
+        super().__init__(name=name)
+        self.model = None
+        self.parameters = None
 
 
 class ParameterParser:
@@ -28,15 +41,22 @@ class ParameterParser:
         pass
         parser = PDFParser()
         parser.parseFile(profile_file)
+        profile = Profile()
+        profile.loadParsedData(parser)
         parameter_values = parser.getData()
         parameter_names = ["x", "y", "dx", "dy"]
         parameter_set = _construct_parameterset(
             parameter_names, parameter_values, parset_name
         )
+        profile_model = RefinenableModel(name=parset_name)
+        profile_model.model = profile
+        profile_model.parameters = parameter_set
         meta = dict(parser.getMetaData())
-        return parameter_set, meta
+        return profile_model, meta
 
-    def _parse_structure(self, structure_file: str):
+    def _parse_structure(
+        self, structure_file: str, parset_name: str = "structure_parameterset"
+    ):
         if not Path(structure_file).exists():
             raise FileNotFoundError(
                 self.MISSING_FILE_WARNING.format(
@@ -45,35 +65,16 @@ class ParameterParser:
             )
         stru = Structure()
         stru.read(structure_file)
-        structure_parameterset = struToParameterSet(
-            "structure_parameterset", stru
+        stru_diffpy_parset = struToParameterSet(parset_name, stru)
+        structure_mdel = RefinenableModel(name=parset_name)
+        structure_mdel.model = stru
+        structure_mdel.parameters = ParameterSet(name=parset_name)
+        structure_mdel.parameters.addParameterSet(
+            stru_diffpy_parset.getLattice()
         )
-        return structure_parameterset
-
-
-class ParameterAdapter:
-    """
-    A ParameterAdapter class contains methods to adapt parameters of
-    variables format to the standard format used in diffpy
-    """
-
-    def __init__(self):
-        pass
-
-    def _adapt_string(self, parameter: str):
-        pass
-
-    def _adapt_code(self, function_code: str):
-        pass
-
-    def _adapt_special(self, special_parameter: str):
-        pass
-
-    def _adapt_structure_file(self, phase_file: str):
-        pass
-
-    def _adapt_profile_file(self, profile_file: str):
-        pass
+        for atom_parset in stru_diffpy_parset.getScatterers():
+            structure_mdel.parameters.addParameterSet(atom_parset)
+        return structure_mdel
 
 
 def _construct_parameterset(names, values, parset_name):

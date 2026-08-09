@@ -1,7 +1,12 @@
+from collections import OrderedDict
+
+from scipy.optimize import leastsq
+
+from diffpy.srfit.fitbase import FitContribution, FitRecipe, Profile
 from diffpy.srfit.fitbase.parameterset import ParameterSet
 
 
-class RefinementSession(ParameterSet):
+class RefinementSession:
     """
     A refinement session class that manages the refinement process.
 
@@ -25,23 +30,51 @@ class RefinementSession(ParameterSet):
     """
 
     def __init__(self):
-        self.loss_functions = []
-        self.loss_function = None
+        self.main_parameter_set = ParameterSet(name="main_parameter_set")
+        self.calculators = []
+        self.contributions = OrderedDict()
 
-    def _prepare_variables(self):
-        """Prepare variables for refinement.
+    def add_parameterSet(self, parset):
+        """Add a ParameterSet to the refinement session."""
+        self.main_parameter_set.addParameterSet(parset)
 
-        Convert the literals into builders before make the equation"""
+    def add_parameter(self, parameter):
+        """Add a Parameter to the refinement session."""
+        self.main_parameter_set.addParameter(parameter)
+
+    def add_function(self, name, expression=None, ns={}):
         pass
 
-    def register_loss_function(self):
-        """Register the loss function for refinement."""
+    def add_calculator(self, calculator):
         pass
 
-    def set_master_loss_function(self, name):
-        """set the master loss function for refinement."""
-        self.master_loss_function = name
+    def add_profile(self, name=None, profile=None, x=None, y=None, dy=None):
+        if profile is None:
+            profile = Profile()
+            profile.x = x
+            profile.y = y
+            if dy is not None:
+                profile.dy = dy
+        contribution = FitContribution(name=name)
+        contribution.setProfile(profile, xname=profile.x.name)
+        self.contributions[name] = contribution
 
-    def refine(self):
-        """Perform the refinement."""
-        pass
+    def set_profile_equation(self, profile_name, expression):
+        self.contributions[profile_name].setEquation(expression)
+
+    def set_profile_weights(self, names, weights):
+        self.recipe = FitRecipe()
+        for name, weight in zip(names, weights):
+            self.recipe.addContribution(
+                self.contributions[name], weight=weight
+            )
+
+    def refine(self, var_names, initial_values):
+        for name, value in zip(var_names, initial_values):
+            self.main_parameter_set.parameters[name].setValue(value)
+        for name in var_names:
+            self.recipe.addVar(self.main_parameter_set.parameters[name])
+        self.recipe.fix("all")
+        for name in var_names:
+            self.recipe.free(name)
+            leastsq(self.recipe.residual, self.recipe.values)
