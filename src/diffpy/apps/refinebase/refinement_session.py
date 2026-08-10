@@ -63,10 +63,7 @@ class RefinementSession:
     ):
         if profile is None:
             profile = Profile()
-            profile.x = x
-            profile.y = y
-            if dy is not None:
-                profile.dy = dy
+            profile.setObservedProfile(x, y, dy)
         contribution = FitContribution(name=name)
         contribution.setProfile(profile, xname=xname)
         contribution.setEquation(expression)
@@ -88,15 +85,21 @@ class RefinementSession:
             recipe.addContribution(self.contributions[name], weight=weight)
         # Add variables
         temp_parameter_tree = ParameterSetTree(self.main_parameter_set)
+        for name in var_names:
+            if name not in temp_parameter_tree.graph.nodes:
+                raise ValueError(
+                    f"Variable '{name}' not found in the parameter tree. "
+                )
+        recipe_var_names = [name.replace(".", "_") for name in var_names]
         for i, name in enumerate(var_names):
             recipe.addVar(
                 temp_parameter_tree.graph.nodes[name]["parameter"],
                 value=initial_values[i],
-                name=name,
+                name=recipe_var_names[i],
             )
         # Refine the recipe
         recipe.fix("all")
-        for name in var_names:
+        for name in recipe_var_names:
             recipe.free(name)
             leastsq(recipe.residual, recipe.values)
 
