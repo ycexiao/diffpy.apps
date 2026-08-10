@@ -73,7 +73,7 @@ class RefinementSession:
         self.main_parameter_set.addParameterSet(contribution)
         self.contributions[name] = contribution
 
-    def refine(
+    def solve(
         self,
         case_names,
         case_weights,

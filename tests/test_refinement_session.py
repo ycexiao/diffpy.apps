@@ -16,7 +16,7 @@ def test_refinement_session():
         expression="A*sin(a*x)",
         xname="x",
     )
-    session.refine(
+    session.solve(
         case_names=["sine_fit"],
         case_weights=[1.0],
         var_names=["main.sine_fit.A", "main.sine_fit.a"],
