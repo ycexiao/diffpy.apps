@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import networkx as nx
+
 from diffpy.srfit.fitbase import Profile
 from diffpy.srfit.fitbase.parameter import Parameter
 from diffpy.srfit.fitbase.parameterset import ParameterSet
@@ -18,6 +20,30 @@ class RefinenableModel(ParameterSet):
         super().__init__(name=name)
         self.model = None
         self.parameters = None
+
+
+class ParameterSetTree:
+    """
+    A TreeView instance provides a tree view of the ParameterSet.
+    """
+
+    def __init__(self, parameter_set):
+        self.graph = nx.DiGraph()
+        self._construct_parameter_tree_view(parameter_set, prefix="")
+
+    def _construct_parameter_tree_view(self, parameterset, prefix=""):
+        parent_name = f"{prefix}{parameterset.name}"
+        self.graph.add_node(parent_name, parameter=parameterset)
+
+        for par in parameterset._iterManaged():
+            child_name = f"{parent_name}.{par.name}"
+            self.graph.add_node(child_name, parameter=par)
+            self.graph.add_edge(parent_name, child_name)
+            if hasattr(par, "_iterManaged"):
+                self._construct_parameter_tree_view(
+                    par,
+                    prefix=f"{parent_name}.",
+                )
 
 
 class ParameterParser:
@@ -45,7 +71,7 @@ class ParameterParser:
         profile.loadParsedData(parser)
         parameter_values = parser.getData()
         parameter_names = ["x", "y", "dx", "dy"]
-        parameter_set = _construct_parameterset(
+        parameter_set = _create_parameter_set(
             parameter_names, parameter_values, parset_name
         )
         profile_model = RefinenableModel(name=parset_name)
@@ -66,18 +92,18 @@ class ParameterParser:
         stru = Structure()
         stru.read(structure_file)
         stru_diffpy_parset = struToParameterSet(parset_name, stru)
-        structure_mdel = RefinenableModel(name=parset_name)
-        structure_mdel.model = stru
-        structure_mdel.parameters = ParameterSet(name=parset_name)
-        structure_mdel.parameters.addParameterSet(
+        structure_model = RefinenableModel(name=parset_name)
+        structure_model.model = stru
+        structure_model.parameters = ParameterSet(name=parset_name)
+        structure_model.parameters.addParameterSet(
             stru_diffpy_parset.getLattice()
         )
         for atom_parset in stru_diffpy_parset.getScatterers():
-            structure_mdel.parameters.addParameterSet(atom_parset)
-        return structure_mdel
+            structure_model.parameters.addParameterSet(atom_parset)
+        return structure_model
 
 
-def _construct_parameterset(names, values, parset_name):
+def _create_parameter_set(names, values, parset_name):
     """
     Construct a ParameterSet from a list of variables.
 

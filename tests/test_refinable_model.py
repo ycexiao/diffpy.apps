@@ -1,5 +1,6 @@
 from diffpy.apps.refinebase.refinable_model import (
     ParameterParser,
+    ParameterSetTree,
 )
 
 
@@ -12,7 +13,9 @@ def test_parse_pdf():
         profile_path, parset_name="profile_parameterset"
     )
     expected_parameter_names = ["x", "y", "dx", "dy"]
-    actual_parameter_names = [par.name for par in profile_model.parameters]
+    actual_parameter_names = [
+        par.name for par in profile_model.parameters.iterPars()
+    ]
     assert set(actual_parameter_names) == set(expected_parameter_names)
     expected_meta = {
         "stype": "X",
@@ -65,3 +68,22 @@ def test_parse_structure():
         assert set(actual_atom_parameter_names) == set(
             expected_atom_parameter_names
         )
+
+
+def test_parameter_tree():
+    # C1: Check if the parameter tree is constructed correctly
+    #  Expect the tree to have the corresponding nodes and keeps
+    #  the same structure as the ParameterSet
+    structure_path = "tests/data/Ni.cif"
+    parser = ParameterParser()
+    structure_model = parser._parse_structure(
+        structure_path, parset_name="phase"
+    )
+    parameters = structure_model.parameters
+    tree_view = ParameterSetTree(parameters)
+    expected_nodes = set(
+        ["phase.lattice", "phase.lattice.a", "phase.Ni0", "phase.Ni0.x"]
+    )
+    assert expected_nodes.issubset(set(tree_view.graph.nodes))
+    assert tree_view.graph.has_edge("phase.lattice", "phase.lattice.a")
+    assert tree_view.graph.has_edge("phase.Ni0", "phase.Ni0.x")

@@ -1,7 +1,9 @@
+import uuid
 from collections import OrderedDict
 
 from scipy.optimize import leastsq
 
+from diffpy.apps.refinebase.refinable_model import ParameterSetTree
 from diffpy.srfit.fitbase import FitContribution, FitRecipe, Profile
 from diffpy.srfit.fitbase.parameterset import ParameterSet
 
@@ -30,17 +32,18 @@ class RefinementSession:
     """
 
     def __init__(self):
-        self.main_parameter_set = ParameterSet(name="main_parameter_set")
-        self.calculators = []
+        self.main_parameter_set = ParameterSet(name="main")
+        self.calculators = OrderedDict()
         self.contributions = OrderedDict()
+        self.recipes = OrderedDict()
 
     def add_parameterSet(self, parset):
         """Add a ParameterSet to the refinement session."""
         self.main_parameter_set.addParameterSet(parset)
 
-    def add_parameter(self, parameter):
+    def add_parameter(self, parameter=None, name=None, delegates_to=None):
         """Add a Parameter to the refinement session."""
-        self.main_parameter_set.addParameter(parameter)
+        self.main_parameter_set.addParameterSet(parameter)
 
     def add_function(self, name, expression=None, ns={}):
         pass
@@ -48,7 +51,16 @@ class RefinementSession:
     def add_calculator(self, calculator):
         pass
 
-    def add_profile(self, name=None, profile=None, x=None, y=None, dy=None):
+    def add_case(
+        self,
+        name=None,
+        profile=None,
+        x=None,
+        y=None,
+        dy=None,
+        expression=None,
+        xname=None,
+    ):
         if profile is None:
             profile = Profile()
             profile.x = x
@@ -56,25 +68,45 @@ class RefinementSession:
             if dy is not None:
                 profile.dy = dy
         contribution = FitContribution(name=name)
-        contribution.setProfile(profile, xname=profile.x.name)
+        contribution.setProfile(profile, xname=xname)
+        contribution.setEquation(expression)
+        self.main_parameter_set.addParameterSet(contribution)
         self.contributions[name] = contribution
 
-    def set_profile_equation(self, profile_name, expression):
-        self.contributions[profile_name].setEquation(expression)
-
-    def set_profile_weights(self, names, weights):
-        self.recipe = FitRecipe()
-        for name, weight in zip(names, weights):
-            self.recipe.addContribution(
-                self.contributions[name], weight=weight
+    def refine(
+        self,
+        case_names,
+        case_weights,
+        var_names,
+        initial_values,
+        id=uuid.uuid4(),
+    ):
+        # Initialize the recipe
+        recipe = FitRecipe()
+        self.recipes[id] = recipe
+        for name, weight in zip(case_names, case_weights):
+            recipe.addContribution(self.contributions[name], weight=weight)
+        # Add variables
+        temp_parameter_tree = ParameterSetTree(self.main_parameter_set)
+        for i, name in enumerate(var_names):
+            recipe.addVar(
+                temp_parameter_tree.graph.nodes[name]["parameter"],
+                value=initial_values[i],
+                name=name,
             )
+        # Refine the recipe
+        recipe.fix("all")
+        for name in var_names:
+            recipe.free(name)
+            leastsq(recipe.residual, recipe.values)
 
-    def refine(self, var_names, initial_values):
-        for name, value in zip(var_names, initial_values):
-            self.main_parameter_set.parameters[name].setValue(value)
-        for name in var_names:
-            self.recipe.addVar(self.main_parameter_set.parameters[name])
-        self.recipe.fix("all")
-        for name in var_names:
-            self.recipe.free(name)
-            leastsq(self.recipe.residual, self.recipe.values)
+    def clear(self, level=None):
+        if level is None:
+            level = 1
+
+        if level <= 1:
+            self.main_parameter_set = ParameterSet(name="main")
+        if level <= 2:
+            self.contributions = OrderedDict()
+        if level <= 3:
+            self.recipe = OrderedDict()
