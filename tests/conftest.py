@@ -17,3 +17,17 @@ def user_filesystem(tmp_path):
         json.dump(home_config_data, f)
 
     yield tmp_path
+
+
+@pytest.fixture
+def nested_sine_model():
+    from diffpy.apps.refinebase.parametric_model import ParametricModel
+
+    model = ParametricModel("main")
+    submodel = ParametricModel("sub")
+    submodel.set_equation("a*x")
+    model.register_submodel("u", submodel)
+    model.set_equation("A*sin(u)")
+    submodel.prepare()
+    model.prepare()
+    return model, submodel

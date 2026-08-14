@@ -1,52 +1,75 @@
 import numpy
+from diffpy.srfit.fitbase import (
+    Profile,
+)
+from diffpy.srfit.pdf import PDFParser
+from diffpy.structure import Structure
 
-from diffpy.apps.refinebase.refinable_model import ParameterSetTree
+from diffpy.apps.refinebase.parametric_model import (
+    ParametricModel,
+    ParametricModelPDF,
+)
 from diffpy.apps.refinebase.refinement_session import RefinementSession
 
 
-def test_refinement_session():
+def test_refine_sine():
     # C1: Refinement session without additional calculator or functions
     session = RefinementSession()
     xobs = numpy.linspace(-numpy.pi, numpy.pi, 100)
-    yobs = numpy.sin(xobs) + 1e-1 * numpy.random.normal(size=xobs.shape)
-    session.add_case(
-        name="sine_fit",
-        x=xobs,
-        y=yobs,
-        expression="A*sin(a*x)",
-        xname="x",
-    )
+    yobs = numpy.sin(xobs) + 1e-2 * numpy.random.normal(size=xobs.shape)
+    sine_profile = Profile()
+    sine_profile.setObservedProfile(xobs, yobs)
+    sine_model = ParametricModel("sine_model")
+    sine_model.set_equation("A*sin(a*x)")
+    sine_model.prepare()
     session.solve(
-        case_names=["sine_fit"],
-        case_weights=[1.0],
-        var_names=["main.sine_fit.A", "main.sine_fit.a"],
+        profiles=[sine_profile],
+        models=[sine_model],
+        variables=[
+            sine_model.parameters["sine_model.A"],
+            sine_model.parameters["sine_model.a"],
+        ],
         initial_values=[0.5, 0.5],
     )
-    tree = ParameterSetTree(session.main_parameter_set).graph
     assert numpy.isclose(
-        tree.nodes["main.sine_fit.A"]["parameter"].value, 1.0, rtol=1e-2
+        sine_model.parameters["sine_model.A"].value,
+        1.0,
+        rtol=1e-2,
     )
     assert numpy.isclose(
-        tree.nodes["main.sine_fit.a"]["parameter"].value, 1.0, rtol=1e-2
+        sine_model.parameters["sine_model.a"].value,
+        1.0,
+        rtol=1e-2,
     )
 
-    # C2: Refinement session with one PDFCalculator
-    # parser = ParameterParser()
-    # profile_path = "tests/data/Ni.gr"
-    # structure_path = "tests/data/Ni.cif"
-    # profile_model, profile_meta = parser._parse_pdf(profile_path)
-    # structure_model = parser._parse_structure(structure_path)
 
-    # session = RefinementSession()
-    # session.addParameterSet(profile_model.parameters)
-    # session.addParameterSet(structure_model.parameters)
-    # session.addParameter(
-    #     ParameterAdapter(
-    #         name="g1",
-    #         callable=lambda: PDFCalculator(structure_model.model)[1]
-    #     )
-    # )
-    # session.addParameter(ParameterAdapter(name="s1", value=1.0))
-    # session.register_loss_function(name="l1", expression="s1*g1")
-    # session.set_master_loss_function(name="l1")
-    # session.refine()
+def test_refine_ni():
+    # C1: Refinement session with one PDFCalculator
+    profile_path = "tests/data/Ni.gr"
+    profile = Profile()
+    parser = PDFParser()
+    parser.parseFile(profile_path)
+    profile.loadParsedData(parser)
+    profile.setCalculationRange(xmax=20)
+    stru = Structure()
+    structure_path = "tests/data/Ni.cif"
+    stru.read(structure_path)
+
+    pdf_model = ParametricModelPDF("pdf", structure=stru, meta=profile.meta)
+    pdf_model.prepare()
+    ni_model = ParametricModel("ni_model")
+    ni_model.register_submodel("g", pdf_model)
+    ni_model.set_equation("s*g")
+    ni_model.prepare()
+
+    ni_model.parameters["ni_model.s"].value = 1.0
+
+    session = RefinementSession()
+    session.solve(
+        profiles=[profile],
+        models=[ni_model],
+        variables=[
+            ni_model.parameters["ni_model.s"],
+            pdf_model.parameters["pdf.phase.lattice.a"],
+        ],
+    )
