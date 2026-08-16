@@ -2,13 +2,34 @@ import uuid
 from collections import OrderedDict
 
 import numpy
-from diffpy.srfit.fitbase import FitRecipe
+from diffpy.srfit.fitbase import (
+    FitRecipe,
+    Profile,
+)
 from scipy.optimize import leastsq
+
+from diffpy.apps.refinebase.parametric_model import (
+    ParametricModel,
+)
 
 
 class RefinementSession:
     def __init__(self):
         self.recipes = OrderedDict()
+        self.profiles = OrderedDict()
+        self.models = OrderedDict()
+
+    def add_profile(self, profile: Profile, profile_name: str = None):
+        if profile in self.profiles.values():
+            raise ValueError("Profile already exists in the session.")
+        if profile_name is None:
+            profile_name = str(uuid.uuid4())
+        self.profiles[profile_name] = profile
+
+    def add_model(self, model: ParametricModel):
+        if model in self.models.values():
+            raise ValueError("Model already exists in the session.")
+        self.models[model.name] = model
 
     def solve(
         self,
