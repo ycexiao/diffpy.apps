@@ -48,9 +48,9 @@ def test_refine_ni():
     profile_path = "tests/data/Ni.gr"
     profile = Profile()
     parser = PDFParser()
-    parser.parseFile(profile_path)
-    profile.loadParsedData(parser)
-    profile.setCalculationRange(xmax=20)
+    parser.parse_file(profile_path)
+    profile.load_parsed_data(parser)
+    profile.set_calculation_range(xmax=20)
     stru = Structure()
     structure_path = "tests/data/Ni.cif"
     stru.read(structure_path)

@@ -25,7 +25,7 @@ async def test_refine_sine():
                 "profile_path": "tests/data/sine.dat",
             },
         )
-        assert "sine_profile" in session.profiles
+        assert "sine_profile" in session.profiles_dict
         await mcp_client.call_tool(
             "add_equation_model",
             {
@@ -33,7 +33,7 @@ async def test_refine_sine():
                 "equation": "A*sin(x)",
             },
         )
-        assert "sine_model" in session.models
+        assert "sine_model" in session.models_dict
         await mcp_client.call_tool(
             "set_model_param_value",
             {
@@ -41,7 +41,7 @@ async def test_refine_sine():
                 "value": 0.8,
             },
         )
-        variable_A = get_variable(session.models, "sine_model.A")
+        variable_A = get_variable(session.models_dict, "sine_model.A")
         expected_value = 0.8
         actual_value = variable_A.value
         assert actual_value == expected_value

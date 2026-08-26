@@ -24,7 +24,7 @@ class ParametricModel:
         # must provide placeholders to pass the validation
         if self._contribution.profile is None:
             placeholder_profile = Profile()
-            placeholder_profile.setObservedProfile(
+            placeholder_profile.set_observed_profile(
                 numpy.arange(100), numpy.arange(100)
             )
             self.set_profile(placeholder_profile)
@@ -36,18 +36,20 @@ class ParametricModel:
                 nin=0,  # NOTE: make sure nin=0 and nout=1 is correct
                 nout=1,
             )
-            self._contribution.setEquation("g", ns={"g": placeholder_equation})
+            self._contribution.set_equation(
+                "g", ns={"g": placeholder_equation}
+            )
         old_validate()
 
     def _construct_parameter_graph(self, parameterset, prefix=""):
         parent_name = f"{prefix}{parameterset.name}"
         self._graph.add_node(parent_name, parameter=parameterset)
 
-        for par in parameterset._iterManaged():
+        for par in parameterset._iter_managed():
             child_name = f"{parent_name}.{par.name}"
             self._graph.add_node(child_name, parameter=par)
             self._graph.add_edge(parent_name, child_name)
-            if hasattr(par, "_iterManaged"):
+            if hasattr(par, "_iter_managed"):
                 self._construct_parameter_graph(
                     par,
                     prefix=f"{parent_name}.",
@@ -64,9 +66,11 @@ class ParametricModel:
                 nin=0,  # NOTE: make sure nin=0 and nout=1 is correct
                 nout=1,
             )
+        # FIXME: registerOperator -> register_operator
+        #   once updated in diffpy.srfit.
         self._contribution._eqfactory.registerOperator(symbol, op)
         # Allow iterPars to traverse the submodel's parameters
-        self._contribution.addParameterSet(model._contribution)
+        self._contribution.add_parameter_set(model._contribution)
         self._submodels.append(model)
 
     @property
@@ -78,29 +82,29 @@ class ParametricModel:
         }
 
     def set_profile(self, profile):
-        self._contribution.setProfile(profile)
+        self._contribution.set_profile(profile)
         if hasattr(self, "pdf_generator"):
-            self.pdf_generator.setProfile(profile)
+            self.pdf_generator.set_profile(profile)
         for submodel in self._submodels:
             submodel.set_profile(profile)
 
     def set_equation(self, equation_str, ns={}):
-        self._contribution.setEquation(equation_str, ns=ns)
+        self._contribution.set_equation(equation_str, ns=ns)
 
     def get_equation(self):
-        return self._contribution.getEquation()
+        return self._contribution.get_equation()
 
     def add_parameter(self, parameter):
-        self._contribution.addParameter(parameter)
+        self._contribution.add_parameter(parameter)
 
     def remove_parameter(self, parameter):
-        self._contribution.removeParameter(parameter)
+        self._contribution._remove_parameter(parameter)
 
     def add_parameter_set(self, parameterset):
-        self._contribution.addParameterSet(parameterset)
+        self._contribution.add_parameter_set(parameterset)
 
     def remove_parameter_set(self, parameterset):
-        self._contribution.removeParameterSet(parameterset)
+        self._contribution.remove_parameter_set(parameterset)
 
     def prepare(self):
         self._graph.clear()
@@ -121,19 +125,23 @@ class ParametricModelPDF(ParametricModel):
 
     def _initialize_pdf_generator(self, structure: Structure, meta: dict):
         self.pdf_generator = PDFGenerator(self.name)
+        # FIXME: setStructure -> set_structure
+        #  once updated
         self.pdf_generator.setStructure(structure)
-        self._contribution.addParameterSet(self.pdf_generator)
+        self._contribution.add_parameter_set(self.pdf_generator)
         self._contribution._RecipeContainer__managed = (
             self.pdf_generator._RecipeContainer__managed
         )
         self._contribution._parameters = self.pdf_generator._parameters
 
         if meta is not None:
-            self.processMetaData(meta)
+            self.process_metadata(meta)
 
-    def processMetaData(self, meta: dict = None):
+    def process_metadata(self, meta: dict = None):
         self.pdf_generator.meta.update(meta)
-        self.pdf_generator.processMetaData()
+        # FIXME: processMetaData -> process_meta_data
+        #  once updated in diffpy.srfit.
+        self.pdf_generator._process_metadata()
 
     def evaluate(self):
         if self._contribution.profile is None:

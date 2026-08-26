@@ -12,8 +12,10 @@ mcp = MCPServer("diffpy.apps")
 @mcp.tool()
 async def add_pdf_profile(
     profile_path: Annotated[str, "Path to the PDF profile file"],
-    profile_name: Annotated[str, "Unique name for the profile"] = uuid.uuid4(),
+    profile_name: Annotated[str, "Unique name for the profile"] = None,
 ) -> str:
+    if profile_name is None:
+        profile_name = str(uuid.uuid4())
     """Add a pdf profile to the refinement session."""
     from diffpy.apps.refinebase.util import (
         get_pdf_profile,
@@ -27,7 +29,7 @@ async def add_pdf_profile(
 @mcp.tool()
 async def add_dat_profile(
     profile_path: Annotated[str, "Path to the .dat profile file"],
-    profile_name: Annotated[str, "Unique name for the profile"] = uuid.uuid4(),
+    profile_name: Annotated[str, "Unique name for the profile"],
 ) -> str:
     """Add a profile to the refinement session.
 
@@ -36,6 +38,9 @@ async def add_dat_profile(
     from diffpy.apps.refinebase.util import (
         get_dat_profile,
     )
+
+    if profile_name is None:
+        profile_name = str(uuid.uuid4())
 
     profile = get_dat_profile(profile_path)
     session.add_profile(profile, profile_name=profile_name)
@@ -48,7 +53,7 @@ def add_text_profile(
     yarray: Annotated[list, "Y-values of the profile"],
     dx: Annotated[list, "Uncertainties in the x-values"] = None,
     dy: Annotated[list, "Uncertainties in the y-values"] = None,
-    profile_name: Annotated[str, "Unique name for the profile"] = uuid.uuid4(),
+    profile_name: Annotated[str, "Unique name for the profile"] = None,
 ) -> str:
     """Add a profile to the refinement session.
 
@@ -57,9 +62,30 @@ def add_text_profile(
         get_text_profile,
     )
 
+    if profile_name is None:
+        profile_name = str(uuid.uuid4())
+
     profile = get_text_profile(xarray, yarray, dx=dx, dy=dy)
     session.add_profile(profile, profile_name=profile_name)
     return f"Profile {profile_name} added successfully."
+
+
+@mcp.tool()
+async def remove_profile(
+    profile_name: Annotated[str, "Name of the profile to remove"],
+) -> str:
+    """Remove a profile from the refinement session."""
+    session.remove_profile(profile_name)
+    return f"Profile {profile_name} removed successfully."
+
+
+@mcp.tool()
+async def remove_model(
+    model_name: Annotated[str, "Name of the model to remove"],
+) -> str:
+    """Remove a model from the refinement session."""
+    session.remove_model(model_name)
+    return f"Model {model_name} removed successfully."
 
 
 @mcp.tool()
@@ -94,13 +120,13 @@ async def add_equation_model(
 @mcp.tool()
 async def list_profiles() -> list[str]:
     """List all profiles in the refinement session."""
-    return [str(profile_id) for profile_id in session.profiles.keys()]
+    return [str(profile_id) for profile_id in session.profiles_dict.keys()]
 
 
 @mcp.tool()
 async def list_models() -> list[str]:
     """List all models in the refinement session."""
-    return [str(model_id) for model_id in session.models.keys()]
+    return [str(model_id) for model_id in session.models_dict.keys()]
 
 
 @mcp.tool()
@@ -109,10 +135,10 @@ async def set_model_equation(
     equation: Annotated[str, "Equation to set for the parametric model"],
 ) -> str:
     """Set or change the equation for a specific parametric model."""
-    if model_name not in session.models:
+    if model_name not in session.models_dict:
         raise ValueError(f"Model with ID {model_name} does not exist.")
 
-    model = session.models[model_name]
+    model = session.models_dict[model_name]
     model.set_equation(equation)
     model.prepare()  # Re-prepare the model after changing the equation
 
@@ -130,18 +156,18 @@ async def combine_models(
     """
     Combine two parametric models by registering the child to the parent model.
     """
-    if parent_model_name not in session.models:
+    if parent_model_name not in session.models_dict:
         raise ValueError(
             f"Parent model with ID {parent_model_name} does not exist."
         )
 
-    if child_model_name not in session.models:
+    if child_model_name not in session.models_dict:
         raise ValueError(
             f"Child model with ID {child_model_name} does not exist."
         )
 
-    parent_model = session.models[parent_model_name]
-    child_model = session.models[child_model_name]
+    parent_model = session.models_dict[parent_model_name]
+    child_model = session.models_dict[child_model_name]
 
     parent_model.register_submodel(symbol, child_model)
     parent_model.prepare()
@@ -160,9 +186,8 @@ async def set_model_param_value(
     """
     Set the value of a specific parameter in a parametric model.
     """
-    from diffpy.apps.refinebase.util import get_variable
 
-    variable = get_variable(session.models, param_name)
+    variable = session.get_variable(param_name)
     variable.setValue(value)
 
     return f"Parameter '{param_name}' is set to {value}."
@@ -175,10 +200,10 @@ async def list_model_parameters(
     """
     List all parameters of a specific parametric model.
     """
-    if model_name not in session.models:
+    if model_name not in session.models_dict:
         raise ValueError(f"Model with ID {model_name} does not exist.")
 
-    model = session.models[model_name]
+    model = session.models_dict[model_name]
     parameters = {
         node_id: par.value for node_id, par in model.parameters.items()
     }
@@ -192,10 +217,10 @@ async def get_model_value(
     """
     Get the value of a specific parametric model.
     """
-    if model_name not in session.models:
+    if model_name not in session.models_dict:
         raise ValueError(f"Model with ID {model_name} does not exist.")
 
-    model = session.models[model_name]
+    model = session.models_dict[model_name]
     value = model.evaluate()
 
     return f"Value for model '{model_name}': {value}"
@@ -219,12 +244,11 @@ async def refine(
     Perform a refinement using the specified profiles, models, and variables.
     """
     # Retrieve profiles and models from session using provided IDs
-    from diffpy.apps.refinebase.util import get_variable
 
-    profile_objs = [session.profiles[pid] for pid in profile_names]
-    model_objs = [session.models[mid] for mid in model_names]
+    profile_objs = [session.profiles_dict[pid] for pid in profile_names]
+    model_objs = [session.models_dict[mid] for mid in model_names]
     variable_objs = [
-        get_variable(session.models, var_name) for var_name in variable_names
+        session.get_variable(var_name) for var_name in variable_names
     ]
 
     # Perform refinement
