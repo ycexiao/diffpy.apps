@@ -97,7 +97,6 @@ async def add_pdf_model(
     from diffpy.apps.refinebase.util import get_pdf_model
 
     pdf_model = get_pdf_model(structure_path=structure_path, name=model_name)
-    pdf_model.prepare()
     session.add_model(pdf_model)
     return f"Model {pdf_model.name} added successfully."
 
@@ -108,11 +107,11 @@ async def add_equation_model(
     model_name: Annotated[str, "Name of the parametric model"] = uuid.uuid4(),
 ) -> str:
     """Add an equation-based parametric model to the refinement session."""
-    from diffpy.apps.refinebase.parametric_model import ParametricModel
+    from diffpy.apps.refinebase.parametric_model import ParametricModelEquation
 
-    equation_model = ParametricModel(name=model_name)
-    equation_model.set_equation(equation)
-    equation_model.prepare()
+    equation_model = ParametricModelEquation(
+        name=model_name, equation_str=equation
+    )
     session.add_model(equation_model)
     return f"Model {equation_model.name} added successfully."
 
@@ -127,22 +126,6 @@ async def list_profiles() -> list[str]:
 async def list_models() -> list[str]:
     """List all models in the refinement session."""
     return [str(model_id) for model_id in session.models_dict.keys()]
-
-
-@mcp.tool()
-async def set_model_equation(
-    model_name: Annotated[str, "Name of the parametric model"],
-    equation: Annotated[str, "Equation to set for the parametric model"],
-) -> str:
-    """Set or change the equation for a specific parametric model."""
-    if model_name not in session.models_dict:
-        raise ValueError(f"Model with ID {model_name} does not exist.")
-
-    model = session.models_dict[model_name]
-    model.set_equation(equation)
-    model.prepare()  # Re-prepare the model after changing the equation
-
-    return f"Equation for model {model_name} set successfully."
 
 
 @mcp.tool()
@@ -170,7 +153,6 @@ async def combine_models(
     child_model = session.models_dict[child_model_name]
 
     parent_model.register_submodel(symbol, child_model)
-    parent_model.prepare()
 
     return (
         f"Models {parent_model_name} and "
@@ -188,7 +170,7 @@ async def set_model_param_value(
     """
 
     variable = session.get_variable(param_name)
-    variable.setValue(value)
+    variable.set_value(value)
 
     return f"Parameter '{param_name}' is set to {value}."
 

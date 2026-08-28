@@ -46,3 +46,30 @@ def test_parametric_model_evaluation(nested_sine_model, A, a, x, expected):
     submodel.parameters["sub.x"].value = x
     actual = model.evaluate()
     assert numpy.isclose(actual, expected, rtol=1e-6)
+
+
+def test_parametric_model_constrain(ni_model):
+    # C1: Constrain Ni with Fm-3m space group
+    #   Expect structure parameters except a, Uiso_0 to be constrained
+    # TODO: handle prepare stuff. It refreshes the 'constrained_or_constant'.
+    ni_model.constrain_symmetry("Fm-3m")
+    free_parnames = [
+        "ni.phase.lattice.a",
+        "ni.phase.lattice.alpha",
+        "ni.phase.Ni0.Uiso",
+        "ni.delta1",
+        "ni.delta2",
+        "ni.qbroad",
+        "ni.scale",
+        "ni.qdamp",
+        "ni.phase.Ni0.occ",
+        "ni.phase.Ni1.occ",
+        "ni.phase.Ni2.occ",
+        "ni.phase.Ni3.occ",
+    ]
+    for par_name in ni_model.parameters.keys():
+        if par_name not in free_parnames:
+            assert (
+                ni_model._graph.nodes[par_name]["constrained_or_constant"]
+                is True
+            )

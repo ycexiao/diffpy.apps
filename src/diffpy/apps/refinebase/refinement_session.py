@@ -47,7 +47,8 @@ class RefinementSession:
             raise ValueError(f"Model '{objs[0]}' not found in the session.")
         if variable_name not in self.models_dict[objs[0]].parameters:
             raise ValueError(
-                f"Variable '{variable_name}' not found in the model '{objs[0]}'."
+                f"Variable '{variable_name}' not found in "
+                f"the model '{objs[0]}'."
             )
         return self.models_dict[objs[0]].parameters[variable_name]
 
@@ -66,7 +67,8 @@ class RefinementSession:
             weights = numpy.ones(len(profiles)) / len(profiles)
         for i in range(len(models)):
             models[i].set_profile(profiles[i])
-            recipe.addContribution(models[i]._contribution, weight=weights[i])
+            recipe.add_contribution(models[i]._contribution, weight=weights[i])
+
         # Add variables
         if initial_values is not None:
             for var, val in zip(variables, initial_values):
@@ -75,7 +77,6 @@ class RefinementSession:
             recipe.add_variable(var)
         # Refine the recipe
         recipe.fix("all")
-        recipe.residual()
         for i in range(len(variables)):
             recipe.free(variables[i].name)
             leastsq(recipe.residual, recipe.getValues())

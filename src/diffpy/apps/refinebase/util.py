@@ -4,8 +4,8 @@ def get_pdf_profile(profile_path: str):
 
     profile = Profile()
     parser = PDFParser()
-    parser.parseFile(profile_path)
-    profile.loadParsedData(parser)
+    parser.parse_file(profile_path)
+    profile.load_parsed_data(parser)
     return profile
 
 
@@ -36,23 +36,3 @@ def get_pdf_model(structure_path: str, name="pdf"):
     stru.read(structure_path)
     pdf_model = ParametricModelPDF(name, structure=stru)
     return pdf_model
-
-
-def get_variable(models_dict, variable_name):
-    objs = variable_name.split(".")
-    if objs[0] not in models_dict:
-        raise ValueError(f"Model '{objs[0]}' not found in the session.")
-    if variable_name not in models_dict[objs[0]].parameters:
-        raise ValueError(
-            f"Variable '{variable_name}' not found in the model '{objs[0]}'."
-        )
-
-    return models_dict[objs[0]].parameters[variable_name]
-
-
-# if __name__ == "__main__":
-# import numpy as np
-# xarray = np.linspace(-2*np.pi, 2*np.pi, 400)
-# yarray = np.sin(xarray) + 0.05*np.random.normal(size=len(xarray))
-# X = np.stack((xarray,yarray), axis=1)
-# np.savetxt("sine.dat",X)

@@ -3,7 +3,6 @@ import pytest
 from mcp import Client
 
 from diffpy.apps.refinebase.refinement_server import mcp
-from diffpy.apps.refinebase.util import get_variable
 
 
 @pytest.fixture
@@ -41,7 +40,7 @@ async def test_refine_sine():
                 "value": 0.8,
             },
         )
-        variable_A = get_variable(session.models_dict, "sine_model.A")
+        variable_A = session.get_variable("sine_model.A")
         expected_value = 0.8
         actual_value = variable_A.value
         assert actual_value == expected_value

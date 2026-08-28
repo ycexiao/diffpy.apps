@@ -6,7 +6,7 @@ from diffpy.srfit.pdf import PDFParser
 from diffpy.structure import Structure
 
 from diffpy.apps.refinebase.parametric_model import (
-    ParametricModel,
+    ParametricModelEquation,
     ParametricModelPDF,
 )
 from diffpy.apps.refinebase.refinement_session import RefinementSession
@@ -19,9 +19,9 @@ def test_refine_sine():
     yobs = numpy.sin(xobs) + 1e-2 * numpy.random.normal(size=xobs.shape)
     sine_profile = Profile()
     sine_profile.setObservedProfile(xobs, yobs)
-    sine_model = ParametricModel("sine_model")
-    sine_model.set_equation("A*sin(a*x)")
-    sine_model.prepare()
+    sine_model = ParametricModelEquation(
+        name="sine_model", equation_str="A*sin(a*x)"
+    )
     session.solve(
         profiles=[sine_profile],
         models=[sine_model],
@@ -56,14 +56,9 @@ def test_refine_ni():
     stru.read(structure_path)
 
     pdf_model = ParametricModelPDF("pdf", structure=stru, meta=profile.meta)
-    pdf_model.prepare()
-    ni_model = ParametricModel("ni_model")
+    ni_model = ParametricModelEquation(name="ni_model", equation_str="s*g")
     ni_model.register_submodel("g", pdf_model)
-    ni_model.set_equation("s*g")
-    ni_model.prepare()
-
     ni_model.parameters["ni_model.s"].value = 1.0
-
     session = RefinementSession()
     session.solve(
         profiles=[profile],
