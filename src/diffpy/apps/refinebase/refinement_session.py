@@ -2,14 +2,14 @@ import uuid
 from collections import OrderedDict
 
 import numpy
-from diffpy.srfit.fitbase import (
-    FitRecipe,
-    Profile,
-)
 from scipy.optimize import leastsq
 
 from diffpy.apps.refinebase.parametric_model import (
     ParametricModel,
+)
+from diffpy.srfit.fitbase import (
+    FitRecipe,
+    Profile,
 )
 
 

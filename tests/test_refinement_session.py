@@ -1,15 +1,15 @@
 import numpy
-from diffpy.srfit.fitbase import (
-    Profile,
-)
-from diffpy.srfit.pdf import PDFParser
-from diffpy.structure import Structure
 
 from diffpy.apps.refinebase.parametric_model import (
     ParametricModelEquation,
     ParametricModelPDF,
 )
 from diffpy.apps.refinebase.refinement_session import RefinementSession
+from diffpy.srfit.fitbase import (
+    Profile,
+)
+from diffpy.srfit.pdf import PDFParser
+from diffpy.structure import Structure
 
 
 def test_refine_sine():

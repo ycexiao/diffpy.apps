@@ -2,15 +2,15 @@ import json
 from pathlib import Path
 
 import pytest
+
+from diffpy.apps.refinebase.parametric_model import (
+    ParametricModelPDF,
+)
 from diffpy.srfit.fitbase import (
     Profile,
 )
 from diffpy.srfit.pdf import PDFParser
 from diffpy.structure import Structure
-
-from diffpy.apps.refinebase.parametric_model import (
-    ParametricModelPDF,
-)
 
 
 @pytest.fixture

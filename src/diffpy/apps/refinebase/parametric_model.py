@@ -2,6 +2,7 @@ import re
 from collections import OrderedDict
 
 import networkx as nx
+
 from diffpy.srfit.equation.literals import Operator, makeOperator
 from diffpy.srfit.fitbase import FitContribution
 from diffpy.srfit.fitbase.parameter import Parameter, ParameterProxy

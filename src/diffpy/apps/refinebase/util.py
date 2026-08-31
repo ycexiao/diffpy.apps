@@ -28,9 +28,8 @@ def get_text_profile(xarray, yarray, dx=None, dy=None):
 
 
 def get_pdf_model(structure_path: str, name="pdf"):
-    from diffpy.structure import Structure
-
     from diffpy.apps.refinebase.parametric_model import ParametricModelPDF
+    from diffpy.structure import Structure
 
     stru = Structure()
     stru.read(structure_path)
