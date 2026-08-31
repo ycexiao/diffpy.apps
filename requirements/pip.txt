@@ -1,4 +1,1 @@
 numpy
-inline-snapshot
-mcp[cli]
-textx
