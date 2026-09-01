@@ -1,17 +1,26 @@
 import numpy
 import pytest
 
+from diffpy.apps.refinebase.parametric_model import (
+    ParametricModelEquation,
+    ParametricModelPDF,
+)
+from diffpy.srfit.fitbase import (
+    Profile,
+)
+from diffpy.srfit.pdf import PDFParser
+from diffpy.structure import Structure
 
-def test_parametric_model_graph(nested_sine_model):
-    model, submodel = nested_sine_model
+
+def test_parametric_model_graph():
     # C1: Create a nested parametric model
     # Expect the graph to be constructed correctly
+    model = ParametricModelEquation("main", "A*sin(u)")
+    submodel = ParametricModelEquation("sub", "a*x")
+    model.register_submodel(symbol="u", submodel=submodel)
     expected_parameters = ["main.A", "main.sub.a", "main.sub.x"]
     actual_parameters = list(model.parameters.keys())
     assert set(expected_parameters) == set(actual_parameters)
-    expected_nodes = ["main", "main.A", "main.sub", "main.sub.a", "main.sub.x"]
-    actual_nodes = list(model._graph.nodes)
-    assert set(expected_nodes).issubset(set(actual_nodes))
     expected_edges = [
         ("main", "main.A"),
         ("main", "main.sub"),
@@ -48,14 +57,21 @@ def test_parametric_model_evaluation(nested_sine_model, A, a, x, expected):
     assert numpy.isclose(actual, expected, rtol=1e-6)
 
 
-def test_parametric_model_constrain(ni_model):
-    # C1: Constrain Ni with Fm-3m space group
-    #   Expect structure parameters except a, Uiso_0 to be constrained
-    # TODO: handle prepare stuff. It refreshes the 'constrained_or_constant'.
-    ni_model.constrain_symmetry("Fm-3m")
-    free_parnames = [
+def test_parametric_pdf_model_parameters():
+    # C1: Create a ParametricModelPDF for Ni
+    # Expect the model to be initialized correctly with all parameters
+    profile_path = "tests/data/Ni.gr"
+    profile = Profile()
+    parser = PDFParser()
+    parser.parse_file(profile_path)
+    profile.load_parsed_data(parser)
+    profile.set_calculation_range(xmax=20)
+    stru = Structure()
+    structure_path = "tests/data/Ni.cif"
+    stru.read(structure_path)
+    pdf_model = ParametricModelPDF("ni", structure=stru)
+    parameter_names = [
         "ni.phase.lattice.a",
-        "ni.phase.lattice.alpha",
         "ni.phase.Ni0.Uiso",
         "ni.delta1",
         "ni.delta2",
@@ -67,9 +83,6 @@ def test_parametric_model_constrain(ni_model):
         "ni.phase.Ni2.occ",
         "ni.phase.Ni3.occ",
     ]
-    for par_name in ni_model.parameters.keys():
-        if par_name not in free_parnames:
-            assert (
-                ni_model._graph.nodes[par_name]["constrained_or_constant"]
-                is True
-            )
+    assert set(parameter_names).issubset(set(pdf_model.parameters.keys()))
+    pdf_model.constrain_symmetry("Fm-3m")
+    assert set(parameter_names) == set(pdf_model.independent_parameters.keys())

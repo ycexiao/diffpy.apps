@@ -1,9 +1,7 @@
 import re
-from collections import OrderedDict
 
 import networkx as nx
 
-from diffpy.srfit.equation.literals import Operator, makeOperator
 from diffpy.srfit.fitbase import FitContribution
 from diffpy.srfit.fitbase.parameter import Parameter, ParameterProxy
 from diffpy.srfit.pdf.pdfgenerator import PDFGenerator
@@ -14,10 +12,8 @@ from diffpy.structure import Structure
 class ParametricModel:
     def __init__(self, name):
         self.name = name
-        self.description = ""
-        self._contribution = FitContribution(name)
+        self.calc_obj = FitContribution(name)
         self._graph = nx.DiGraph()
-        self.meta = OrderedDict()
         # all submodels will share the same profile
         self._submodels = []
 
@@ -26,9 +22,7 @@ class ParametricModel:
     ):
         parent_name = f"{prefix}{parameterset.name}"
         self._graph.add_node(parent_name, parameter=parameterset)
-        for par in parameterset._iter_local_parameters(
-            regexp=re.compile("")  # regex is a required argument
-        ):
+        for par in parameterset._iter_local_parameters(regexp=re.compile("")):
             par_node_id = f"{parent_name}.{par.name}"
             if not old_graph or par_node_id not in old_graph.nodes:
                 self._graph.add_node(
@@ -37,8 +31,6 @@ class ParametricModel:
                     constrained_or_constant=False,
                 )
             else:
-                # apply stored constrained_or_constant information
-                # from the old graph
                 self._graph.add_node(
                     par_node_id,
                     parameter=par,
@@ -47,7 +39,6 @@ class ParametricModel:
                     ],
                 )
             self._graph.add_edge(parent_name, par_node_id)
-
         for obj in parameterset._iter_managed_parameter_containers():
             if hasattr(obj, "_iter_managed_parameter_containers"):
                 child_name = f"{parent_name}.{obj.name}"
@@ -63,28 +54,36 @@ class ParametricModel:
                     prefix=f"{parent_name}.",
                 )
 
-    def register_submodel(self, symbol, model):
-        """Register a parametric model to the current model."""
-        op = model.evaluate
-        if not isinstance(model.evaluate, Operator):
-            op = makeOperator(
-                name=model.name,
-                symbol=symbol,
-                operation=model.evaluate,
-                nin=0,  # NOTE: make this (nin, nout) work for all scenarios
-                nout=1,
+    def register_submodel(self, submodel, symbol=None):
+        if not isinstance(self, ParametricModelEquation):
+            raise ValueError(
+                "Submodels can only be registered to "
+                "ParametricModelEquation instance."
             )
-        # NOTE: registerOperator -> register_operator
-        #   once updated in diffpy.srfit.
-        self._contribution._eqfactory.registerOperator(symbol, op)
-        # Replace parameter with the submodel's parameterset
-        if symbol in self._contribution._parameters:
-            self._contribution._remove_parameter(
-                self._contribution._parameters[symbol]
+        if symbol is None:
+            symbol = submodel.name
+        if symbol in self.calc_obj._parameters:
+            self.calc_obj._remove_parameter(self.calc_obj._parameters[symbol])
+        if isinstance(submodel, ParametricModelPDF):
+            self.calc_obj.add_profile_generator(submodel.calc_obj)
+        elif isinstance(submodel, ParametricModelEquation):
+            self.calc_obj._eqfactory.registerOperator(
+                symbol, submodel.calc_obj._eq
             )
-        self._contribution.add_parameter_set(model._contribution)
-        self._submodels.append(model)
+            self.calc_obj.add_parameter_set(submodel.calc_obj)
+        else:
+            raise NotImplementedError(
+                "Only ParametricModelPDF and ParametricModelEquation "
+                "instances are supported to be registered as submodels."
+            )
+        if self.equation_str is not None:
+            self.calc_obj.set_equation(self.equation_str)
+        self._submodels.append(submodel)
         self._rebuild_graph()
+
+    def process_meta_data(self, meta):
+        if hasattr(self.calc_obj, "process_meta_data"):
+            self.calc_obj.process_meta_data(meta)
 
     @property
     def parameters(self):
@@ -119,114 +118,70 @@ class ParametricModel:
         }
 
     def set_profile(self, profile):
-        self._contribution.set_profile(profile)
-        if hasattr(self, "pdf_generator"):
-            self.pdf_generator.set_profile(profile)
+        self.calc_obj.set_profile(profile)
         for submodel in self._submodels:
-            submodel.set_profile(profile)
+            if hasattr(submodel, "set_profile"):
+                submodel.set_profile(profile)
+        self._rebuild_graph()
 
     def _rebuild_graph(self):
-        """
-        Rebuild the parameter graph based on the current contribution.
-        """
         old_graph = self._graph
         self._graph.clear()
         self._construct_parameter_graph(
-            self._contribution, prefix="", old_graph=old_graph
+            self.calc_obj, prefix="", old_graph=old_graph
         )
 
     def evaluate(self):
-        return self._contribution._eq()
+        return self.calc_obj._eq()
 
 
 class ParametricModelEquation(ParametricModel):
-    def __init__(self, name, equation_str):
+    def __init__(self, name, equation_str=None):
         super().__init__(name=name)
-        self._contribution.set_equation(equation_str)
-        self.description = f"ParametricModelEq: {equation_str}"
+        self.equation_str = None
+        if equation_str:
+            self.equation_str = equation_str
+            self.calc_obj.set_equation(equation_str)
+            self._rebuild_graph()
+
+    @property
+    def _contribution(self):
+        return self.calc_obj
+
+    def set_equation(self, equation_str):
+        self.equation_str = equation_str
+        self.calc_obj.set_equation(equation_str)
         self._rebuild_graph()
 
 
 class ParametricModelPDF(ParametricModel):
-    def __init__(self, name, structure: Structure, meta=None):
+    def __init__(self, name, structure: Structure):
         super().__init__(name=name)
-        self.description = f"ParametricModelPDF: {name}"
-        self._initialize_pdf_generator(structure, meta)
+        self.calc_obj = PDFGenerator(name)
+        self.calc_obj.setStructure(structure)
         self._rebuild_graph()
-        # Constrain aliased parameters
-        constrained_par_names = [
-            r"\.U21$",  # U21=U12
+        self._hide_dependent_parameters()
+
+    def _hide_dependent_parameters(self):
+        dependent_par_names = [
+            r"\.U21$",
             r"\.U31$",
-            r"\.U32$",
-            r"\.B21$",
-            r"\.B31$",
-            r"\.B32$",
+            r"\.U32$",  # U21=U12, U31=U13, U32=U23
+            r"\.Biso",
+            r"\.B\d{2}",  # Bij = Uij * 8 * pi^2
             r"\.occupancy$",  # occupancy=oc
         ]
-        constrained_par_regex = re.compile("|".join(constrained_par_names))
+        regex = re.compile("|".join(dependent_par_names))
         for par_name in self.parameters.keys():
-            if constrained_par_regex.search(par_name):
+            if regex.search(par_name):
                 self._graph.nodes[par_name]["constrained_or_constant"] = True
 
-        if meta is not None:
-            self.process_metadata(meta)
-
-        # Add a placeholder equation to pass the validation
-        old_validate = self._contribution._validate
-        self._contribution._validate = lambda: self.validate(old_validate)
-
-    def validate(self, old_validate):
-        if self._contribution._eq is None:
-            placeholder_equation = makeOperator(
-                name=self.pdf_generator.name,
-                symbol=f"{self.name}_eq_placeholder",
-                operation=self.pdf_generator.operation,
-                nin=0,
-                nout=1,
-            )
-            self._contribution.set_equation(
-                "g", ns={"g": placeholder_equation}
-            )
-        old_validate()
-
-    def _initialize_pdf_generator(self, structure: Structure, meta: dict):
-        self.pdf_generator = PDFGenerator(self.name)
-        # NOTE: setStructure -> set_structure
-        #   once updated in diffpy.srfit.
-        self.pdf_generator.setStructure(structure)
-        # Get access to all parameters in the PDFGenerator
-        self._contribution.add_parameter_set(self.pdf_generator)
-        self._contribution._RecipeContainer__managed = (
-            self.pdf_generator._RecipeContainer__managed
-        )
-        self._contribution._parameters = self.pdf_generator._parameters
-
-    def process_metadata(self, meta: dict = None):
-        self.pdf_generator.meta.update(meta)
-        self.pdf_generator._process_metadata()
-
-    def evaluate(self):
-        if self._contribution.profile is None:
-            raise ValueError("Profile is not set for the PDF model.")
-        return self.pdf_generator.operation()
-
-    def constrain_symmetry(self, space_group: str):
+    def constrain_symmetry(self, spacegroup_symbol):
         space_group_parset = constrain_as_space_group(
-            self.pdf_generator.phase, space_group
+            self.calc_obj.phase, spacegroup_symbol
         )
-        # Get the independent parameters from spacegroup symmetry
-        free_variables = []
-        for latpar in space_group_parset.latpars:
-            free_variables.append(latpar)
-        for adpar in space_group_parset.adppars:
-            free_variables.append(adpar)
-        for xyzpar in space_group_parset.xyzpars:
-            free_variables.append(xyzpar)
-        for i in range(len(free_variables)):
-            while isinstance(free_variables[i], ParameterProxy):
-                free_variables[i] = free_variables[i].par
-        # Add constraints information for dependent parameters
-        symmetry_parnames = [
+        # hide constrained parameters in the graph
+        symmetry_par_names = [
             r"\.a$",
             r"\.b$",
             r"\.c$",
@@ -243,22 +198,32 @@ class ParametricModelPDF(ParametricModel):
             r"\.U12$",
             r"\.U13$",
             r"\.U23$",
-            r"\.Biso$",
-            r"\.B11$",
-            r"\.B22$",
-            r"\.B33$",
-            r"\.B12$",
-            r"\.B13$",
-            r"\.B23$",
         ]
-        symmetry_par_regex = re.compile("|".join(symmetry_parnames))
+        free_variables = []
+        for latpar in space_group_parset.latpars:
+            free_variables.append(latpar)
+        for adpar in space_group_parset.adppars:
+            free_variables.append(adpar)
+        for xyzpar in space_group_parset.xyzpars:
+            free_variables.append(xyzpar)
+        for i in range(len(free_variables)):
+            while isinstance(free_variables[i], ParameterProxy):
+                free_variables[i] = free_variables[i].par
+        symmetry_par_regex = re.compile("|".join(symmetry_par_names))
         for par_name, par in self.parameters.items():
-            if par.constrained or par.const:
-                self._graph.nodes[par_name]["constrained_or_constant"] = True
-            elif symmetry_par_regex.search(par_name):
+            if symmetry_par_regex.search(par_name):
                 while isinstance(par, ParameterProxy):
                     par = par.par
                 if par not in free_variables:
                     self._graph.nodes[par_name][
                         "constrained_or_constant"
                     ] = True
+
+    def set_qmin(self, qmin: float):
+        self.calc_obj.setQmin(qmin)
+
+    def set_qmax(self, qmax: float):
+        self.calc_obj.setQmax(qmax)
+
+    def set_scattering_type(self, scattering_type: str):
+        self.calc_obj.setScatteringType(scattering_type)

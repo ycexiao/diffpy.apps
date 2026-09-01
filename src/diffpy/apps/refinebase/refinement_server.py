@@ -234,7 +234,7 @@ async def refine(
     ]
 
     # Perform refinement
-    session.solve(
+    session._solve(
         profile_objs,
         model_objs,
         variable_objs,

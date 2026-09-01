@@ -2,11 +2,9 @@ import uuid
 from collections import OrderedDict
 
 import numpy
-from scipy.optimize import leastsq
+from scipy.optimize import least_squares
 
-from diffpy.apps.refinebase.parametric_model import (
-    ParametricModel,
-)
+from diffpy.apps.refinebase.parametric_model import ParametricModel
 from diffpy.srfit.fitbase import (
     FitRecipe,
     Profile,
@@ -52,7 +50,7 @@ class RefinementSession:
             )
         return self.models_dict[objs[0]].parameters[variable_name]
 
-    def solve(
+    def _solve(
         self,
         profiles,
         models,
@@ -73,10 +71,15 @@ class RefinementSession:
         if initial_values is not None:
             for var, val in zip(variables, initial_values):
                 var.value = val
+        if len(set([var.name for var in variables])) != len(variables):
+            raise ValueError(
+                "Duplicate variable names found. Please ensure that "
+                "each variable to be refined has a unique name."
+            )
         for var in variables:
             recipe.add_variable(var)
         # Refine the recipe
         recipe.fix("all")
         for i in range(len(variables)):
             recipe.free(variables[i].name)
-            leastsq(recipe.residual, recipe.getValues())
+            least_squares(recipe.residual, recipe.getValues(), x_scale="jac")

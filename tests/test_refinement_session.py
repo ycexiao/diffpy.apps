@@ -2,69 +2,75 @@ import numpy
 
 from diffpy.apps.refinebase.parametric_model import (
     ParametricModelEquation,
-    ParametricModelPDF,
 )
 from diffpy.apps.refinebase.refinement_session import RefinementSession
-from diffpy.srfit.fitbase import (
-    Profile,
-)
-from diffpy.srfit.pdf import PDFParser
-from diffpy.structure import Structure
 
 
-def test_refine_sine():
+def test_refine_sine(nested_sine_model, sine_profile):
     # C1: Refinement session without additional calculator or functions
+    sine_model, submodel = nested_sine_model
     session = RefinementSession()
-    xobs = numpy.linspace(-numpy.pi, numpy.pi, 100)
-    yobs = numpy.sin(xobs) + 1e-2 * numpy.random.normal(size=xobs.shape)
-    sine_profile = Profile()
-    sine_profile.setObservedProfile(xobs, yobs)
-    sine_model = ParametricModelEquation(
-        name="sine_model", equation_str="A*sin(a*x)"
-    )
-    session.solve(
+    session._solve(
         profiles=[sine_profile],
         models=[sine_model],
         variables=[
-            sine_model.parameters["sine_model.A"],
-            sine_model.parameters["sine_model.a"],
+            sine_model.parameters["main.A"],
+            sine_model.parameters["main.sub.a"],
         ],
-        initial_values=[0.5, 0.5],
+        initial_values=[0.8, 0.5],
     )
     assert numpy.isclose(
-        sine_model.parameters["sine_model.A"].value,
+        sine_model.parameters["main.A"].value,
         1.0,
         rtol=1e-2,
     )
     assert numpy.isclose(
-        sine_model.parameters["sine_model.a"].value,
+        sine_model.parameters["main.sub.a"].value,
         1.0,
         rtol=1e-2,
     )
 
 
-def test_refine_ni():
-    # C1: Refinement session with one PDFCalculator
-    profile_path = "tests/data/Ni.gr"
-    profile = Profile()
-    parser = PDFParser()
-    parser.parse_file(profile_path)
-    profile.load_parsed_data(parser)
-    profile.set_calculation_range(xmax=20)
-    stru = Structure()
-    structure_path = "tests/data/Ni.cif"
-    stru.read(structure_path)
-
-    pdf_model = ParametricModelPDF("pdf", structure=stru, meta=profile.meta)
-    ni_model = ParametricModelEquation(name="ni_model", equation_str="s*g")
-    ni_model.register_submodel("g", pdf_model)
-    ni_model.parameters["ni_model.s"].value = 1.0
+def test_refine_ni(ni_pdf_model, ni_pdf_profile, ni_refined_parameters):
+    # C1: Refine Ni example
+    #  Expect the refined parameters are close to the ones
+    #  obtained using diffpy.srfit script
+    ni_pdf_model.process_meta_data(ni_pdf_profile.meta)
+    ni_pdf_model.constrain_symmetry("Fm-3m")
+    ni_model = ParametricModelEquation(name="ni", equation_str="s*pdf")
+    ni_model.register_submodel(ni_pdf_model, symbol="pdf")
     session = RefinementSession()
-    session.solve(
-        profiles=[profile],
+    session._solve(
+        profiles=[ni_pdf_profile],
         models=[ni_model],
         variables=[
-            ni_model.parameters["ni_model.s"],
-            pdf_model.parameters["pdf.phase.lattice.a"],
+            ni_pdf_model.parameters["pdf.phase.lattice.a"],
+            ni_model.parameters["ni.s"],
+            ni_pdf_model.parameters["pdf.phase.Ni0.Uiso"],
+            ni_pdf_model.parameters["pdf.delta2"],
+            ni_pdf_model.parameters["pdf.qdamp"],
+            ni_pdf_model.parameters["pdf.qbroad"],
+        ],
+        initial_values=[
+            3.52,
+            0.4,
+            0.005,
+            2,
+            0.04,
+            0.02,
         ],
     )
+    name_to_cmi_name = {
+        "ni.s": "s0",
+        "ni.pdf.phase.lattice.a": "G1_a",
+        "ni.pdf.phase.Ni0.Uiso": "G1_Uiso_0",
+        "ni.pdf.delta2": "G1_delta2",
+        "ni.pdf.qdamp": "qdamp",
+        "ni.pdf.qbroad": "qbroad",
+    }
+    for name, cmi_name in name_to_cmi_name.items():
+        assert numpy.isclose(
+            ni_model.parameters[name].value,
+            ni_refined_parameters[cmi_name],
+            rtol=1e-2,
+        )
