@@ -6,14 +6,9 @@ import pytest
 from helper import make_cmi_recipe
 from scipy.optimize import least_squares
 
-from diffpy.apps.refinebase.parametric_model import (
-    ParametricModelPDF,
-)
 from diffpy.srfit.fitbase import (
     Profile,
 )
-from diffpy.srfit.pdf import PDFParser
-from diffpy.structure import Structure
 
 
 @pytest.fixture
@@ -50,28 +45,7 @@ def sine_profile():
     return sine_profile
 
 
-@pytest.fixture
-def ni_pdf_model():
-    stru = Structure()
-    structure_path = "tests/data/Ni.cif"
-    stru.read(structure_path)
-    pdf_model = ParametricModelPDF("pdf", structure=stru)
-    return pdf_model
-
-
-@pytest.fixture
-def ni_pdf_profile():
-    profile_path = "tests/data/Ni.gr"
-    profile = Profile()
-    parser = PDFParser()
-    parser.parse_file(profile_path)
-    profile.load_parsed_data(parser)
-    profile.set_calculation_range(xmin=1.5, xmax=50, dx=0.01)
-    profile.meta["qmin"] = 0.1
-    return profile
-
-
-@pytest.fixture
+@pytest.fixture(scope="session")
 def ni_refined_parameters():
     structure_path = Path(__file__).parent / "data" / "Ni.cif"
     profile_path = Path(__file__).parent / "data" / "Ni.gr"

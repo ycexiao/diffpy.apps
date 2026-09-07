@@ -1,3 +1,4 @@
+import logging
 import re
 
 import networkx as nx
@@ -7,6 +8,9 @@ from diffpy.srfit.fitbase.parameter import Parameter, ParameterProxy
 from diffpy.srfit.pdf.pdfgenerator import PDFGenerator
 from diffpy.srfit.structure import constrain_as_space_group
 from diffpy.structure import Structure
+
+# NOTE: MCP server prefers logging for output
+logger = logging.getLogger(__name__)
 
 
 class ParametricModel:
@@ -65,6 +69,11 @@ class ParametricModel:
         if symbol in self.calc_obj._parameters:
             self.calc_obj._remove_parameter(self.calc_obj._parameters[symbol])
         if isinstance(submodel, ParametricModelPDF):
+            if symbol != submodel.name:
+                logger.warning(
+                    f"ParametricModelPDF's name ({submodel.name}) does "
+                    f"not match with the provided symbol ({symbol}) ",
+                )
             self.calc_obj.add_profile_generator(submodel.calc_obj)
         elif isinstance(submodel, ParametricModelEquation):
             self.calc_obj._eqfactory.registerOperator(
@@ -132,7 +141,14 @@ class ParametricModel:
         )
 
     def evaluate(self):
-        return self.calc_obj._eq()
+        raise NotImplementedError(
+            "The evaluate method must be implemented by subclasses."
+        )
+
+    def residual(self):
+        raise NotImplementedError(
+            "The residual method must be implemented by subclasses."
+        )
 
 
 class ParametricModelEquation(ParametricModel):
@@ -140,9 +156,7 @@ class ParametricModelEquation(ParametricModel):
         super().__init__(name=name)
         self.equation_str = None
         if equation_str:
-            self.equation_str = equation_str
-            self.calc_obj.set_equation(equation_str)
-            self._rebuild_graph()
+            self.set_equation(equation_str)
 
     @property
     def _contribution(self):
@@ -153,8 +167,33 @@ class ParametricModelEquation(ParametricModel):
         self.calc_obj.set_equation(equation_str)
         self._rebuild_graph()
 
+    def get_equation(self):
+        return self.equation_str
+
+    def set_residual_equation(self, residual_equation_str):
+        self.residual_equation = residual_equation_str
+        self.calc_obj.set_residual_equation(residual_equation_str)
+        self._rebuild_graph()
+
+    def get_residual_equation(self):
+        return self.residual_equation
+
+    def evaluate(self):
+        yc = self.calc_obj._eq()
+        if (
+            hasattr(self.calc_obj, "profile")
+            and self.calc_obj.profile is not None
+        ):
+            self.calc_obj.profile.ycalc = yc
+        return yc
+
+    def residual(self):
+        return self.calc_obj.residual()
+
 
 class ParametricModelPDF(ParametricModel):
+    # NOTE: qmin, qmax, stype(scattering type) are meta handled
+    #   throughout the loaded profile in the refinement session
     def __init__(self, name, structure: Structure):
         super().__init__(name=name)
         self.calc_obj = PDFGenerator(name)
@@ -219,11 +258,17 @@ class ParametricModelPDF(ParametricModel):
                         "constrained_or_constant"
                     ] = True
 
-    def set_qmin(self, qmin: float):
-        self.calc_obj.setQmin(qmin)
+    def set_profile(self, profile):
+        self.calc_obj.set_profile(profile)
+        self._yname = self.calc_obj.profile.ypar.name
+        self._dyname = self.calc_obj.profile.dypar.name
+        # no submodel is allowed ParametricModelPDF
 
-    def set_qmax(self, qmax: float):
-        self.calc_obj.setQmax(qmax)
+    def evaluate(self):
+        return self.calc_obj.operation()
 
-    def set_scattering_type(self, scattering_type: str):
-        self.calc_obj.setScatteringType(scattering_type)
+    def residual(self):
+        ycalc = self.calc_obj.operation()
+        yobs = self.calc_obj.profile.ypar.value
+        dyobs = self.calc_obj.profile.dypar.value
+        return (ycalc - yobs) / dyobs
