@@ -6,9 +6,9 @@ Call `list_models()` / `list_profiles()` first (session is a shared global singl
 
 ## MCP call-format rules
 
-- **Always pass explicit `model_name`/`profile_name`.** `add_equation_model`/`add_pdf_model` default `model_name` to a UUID computed once at import time — every omitted call gets the *same* value. `profile_name` defaults to `None` and gets echoed straight into the confirmation message.
-- **`combine_models(parent_model_name, child_model_names, symbol)`: call once per child.** `symbol` is one required string, no default. Use `symbol` = the child's own name, unless deliberately renaming an equation-model child (never a PDF child — mismatches there just log a warning, nothing renames). Only an equation model can be a parent.
-- **`add_pdf_model(model_name=..., from_model_name=<existing>)` shares structure, not values.** Lattice/xyz/ADP(Uiso or Biso)/occupancy become the *same* live object as the source — set them once, on the source, never per clone. Generator params (`scale`, `qdamp`, `qbroad`, `delta1`, `delta2`) are NOT shared — set each clone's separately or tie them with a `solve` constraint. Constrain symmetry on the source **before** cloning.
+- **Always pass explicit `model_name`/`profile_name`.** `add_equation_model`/`add_pdf_model` default `model_name` to a UUID computed once at import time — every omitted call gets the _same_ value. `profile_name` defaults to `None` and gets echoed straight into the confirmation message.
+- **`combine_models(parent_model_name, child_model_names)`: call once per child.** The child is registered into the parent's equation under its own model name. Only an equation model can be a parent.
+- **`add_pdf_model(model_name=..., from_model_name=<existing>)` shares structure, not values.** Lattice/xyz/ADP(Uiso or Biso)/occupancy become the _same_ live object as the source — set them once, on the source, never per clone. Generator params (`scale`, `qdamp`, `qbroad`, `delta1`, `delta2`) are NOT shared — set each clone's separately or tie them with a `solve` constraint. Constrain symmetry on the source **before** cloning.
 - **`solve`**: `profile_names`/`model_names`/`residual_equations`/`weights` must be equal length, one entry per contribution. `constraints` is exactly two dicts: `[0]` helper-variable -> initial value, `[1]` variable -> constraint-equation string. Pass `name=` to inspect later via `list_recipe_parameters`. `include_sgpars=true` auto-adds symmetry-freed structural params instead of listing each one.
 - **Parsing results**: `check_profile_meta`/`list_profiles`/`list_models` -> plain JSON. `get_variable`/`list_model_parameters`/`list_recipe_parameters` -> formatted text (`"Variable 'x': 0.42"`), parse it yourself. `get_model_evaluation`/`get_model_residual` write a JSON array to `data_path`; `get_profile_data` writes `{"xobs":[...], "yobs":[...]}` to `data_path` (no `dyobs`/calculated curve). `solve` returns a fit-report string. Errors come back as `"{ExceptionType}: message"`.
 
@@ -17,8 +17,8 @@ Call `list_models()` / `list_profiles()` first (session is a shared global singl
 ```jsonc
 add_profile_from_arrays(xarray=[...], yarray=[...], profile_name="sine_profile")
 add_equation_model(model_name="sub", equation_str="a*x")
-add_equation_model(model_name="main", equation_str="A*sin(u)")
-combine_models(parent_model_name="main", child_model_names=["sub"], symbol="u")   // "u" renames sub into the parent equation
+add_equation_model(model_name="main", equation_str="A*sin(sub)")
+combine_models(parent_model_name="main", child_model_names=["sub"])   // "sub" is registered under its own model name
 set_variables_value(name_value_dict={"main.A": 0.8, "main.sub.a": 0.5})
 solve(profile_names=["sine_profile"], model_names=["main"],
       variable_names=["main.A", "main.sub.a"], name="sine_fit")
@@ -43,7 +43,7 @@ solve(profile_names=["ni_profile"], model_names=["pdf"],
 // -- optional: promote to a free scale factor via a wrapping equation model --
 set_variables_value(name_value_dict={"pdf.scale": 1})   // freeze pdf's own scale at 1
 add_equation_model(model_name="ni_model", equation_str="s*pdf")
-combine_models(parent_model_name="ni_model", child_model_names=["pdf"], symbol="pdf")
+combine_models(parent_model_name="ni_model", child_model_names=["pdf"])
 set_variables_value(name_value_dict={"ni_model.s": 0.4})
 solve(profile_names=["ni_profile"], model_names=["ni_model"],
       variable_names=["ni_model.s", "pdf.delta2", "pdf.qdamp", "pdf.qbroad"],
@@ -73,8 +73,8 @@ constrain_pdf_model_space_group_symmetry(model_name="pdf_si")
 add_pdf_model(model_name="pdf_si_partial", from_model_name="pdf_si")
 
 add_equation_model(model_name="main", equation_str="scale * (pdf_ni_partial + pdf_si_partial)")
-combine_models(parent_model_name="main", child_model_names=["pdf_ni_partial"], symbol="pdf_ni_partial")
-combine_models(parent_model_name="main", child_model_names=["pdf_si_partial"], symbol="pdf_si_partial")
+combine_models(parent_model_name="main", child_model_names=["pdf_ni_partial"])
+combine_models(parent_model_name="main", child_model_names=["pdf_si_partial"])
 
 set_variables_value(name_value_dict={
   "pdf_ni.qdamp": 0.055, "pdf_ni_neutron.qdamp": 0.030, "pdf_ni_partial.qdamp": 0.052,

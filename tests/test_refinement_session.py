@@ -16,10 +16,8 @@ def test_refine_sine(sine_profile):
     # C1: Refinement session without additional calculator or functions
     session = RefinementSession()
     session.add_equation_model(model_name="sub", equation_str="a*x")
-    session.add_equation_model(model_name="main", equation_str="A*sin(u)")
-    session.combine_models(
-        parent_model_name="main", child_model_names=["sub"], symbol="u"
-    )
+    session.add_equation_model(model_name="main", equation_str="A*sin(sub)")
+    session.combine_models(parent_model_name="main", child_model_names=["sub"])
     session.set_variables_value(
         name_value_dict={
             "main.A": 0.8,

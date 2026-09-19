@@ -216,7 +216,6 @@ class RefinementSession:
         self,
         parent_model_name: str,
         child_model_names: list[str],
-        symbol: str = None,
     ):
         if parent_model_name not in self.models_dict:
             raise ValueError(
@@ -231,7 +230,7 @@ class RefinementSession:
         parent_model = self.models_dict[parent_model_name]
         for child_model_name in child_model_names:
             child_model = self.models_dict[child_model_name]
-            parent_model.register_submodel(child_model, symbol)
+            parent_model.register_submodel(child_model)
 
     @check_model_exists
     def set_model_equation(self, model_name: str, equation: str):
