@@ -1,9 +1,10 @@
 import uuid
 from collections import OrderedDict
+from collections.abc import Callable
 from functools import wraps
 
 import numpy
-from scipy.optimize import least_squares
+from scipy.optimize import leastsq
 
 from diffpy.apps.refinebase.parametric_model import (
     ParametricModelEquation,
@@ -46,7 +47,12 @@ class RefinementSession:
         return wrapper
 
     def add_profile_from_file(
-        self, profile_path: str, profile_name: str = None
+        self,
+        profile_path: str,
+        profile_name: str = None,
+        xname: str = "x",
+        yname: str = "y",
+        dyname: str = "dy",
     ):
         if profile_name is not None and profile_name in self.profiles_dict:
             raise ValueError(f"Profile with ID {profile_name} already exists.")
@@ -61,10 +67,24 @@ class RefinementSession:
             parser = PDFParser()
             parser.parse_file(profile_path)
             profile.load_parsed_data(parser)
+        profile.xpar.name = xname
+        profile._xname = xname
+        profile.ypar.name = yname
+        profile._yname = yname
+        profile.dypar.name = dyname
+        profile._dyname = dyname
         self.profiles_dict[profile_name] = profile
 
     def add_profile_from_arrays(
-        self, xarray, yarray, dx=None, dy=None, profile_name: str = None
+        self,
+        xarray,
+        yarray,
+        dx=None,
+        dy=None,
+        profile_name: str = None,
+        xname: str = "x",
+        yname: str = "y",
+        dyname: str = "dy",
     ):
         if profile_name is not None and profile_name in self.profiles_dict:
             raise ValueError(f"Profile with ID {profile_name} already exists.")
@@ -72,6 +92,12 @@ class RefinementSession:
             profile_name = str(uuid.uuid4())
         profile = Profile()
         profile.setObservedProfile(xarray, yarray, dx=dx, dy=dy)
+        profile.xpar.name = xname
+        profile._xname = xname
+        profile.ypar.name = yname
+        profile._yname = yname
+        profile.dypar.name = dyname
+        profile._dyname = dyname
         self.profiles_dict[profile_name] = profile
 
     @check_profile_exists
@@ -134,6 +160,7 @@ class RefinementSession:
         model_name: str,
         structure_file_path=None,
         from_model_name=None,
+        library="Diffpy",
     ):
         from diffpy.apps.refinebase.parametric_model import (
             ParametricModelPDF,
@@ -145,6 +172,7 @@ class RefinementSession:
             pdf_model = ParametricModelPDF(
                 model_name,
                 structure_file_path=structure_file_path,
+                library=library,
             )
         elif from_model_name is not None:
             if from_model_name not in self.models_dict:
@@ -152,13 +180,32 @@ class RefinementSession:
                     f"Model with ID {from_model_name} does not exist."
                 )
             pdf_model = ParametricModelPDF(
-                model_name, from_model_name=self.models_dict[from_model_name]
+                model_name,
+                from_model_name=self.models_dict[from_model_name],
+                library=library,
             )
         else:
             raise ValueError(
                 "Either structure_file_path or from_model must be provided."
             )
         self.models_dict[model_name] = pdf_model
+
+    def add_function_model(
+        self,
+        model_name: str,
+        function: Callable | str,
+        argnames: list[str] | None = None,
+    ):
+        from diffpy.apps.refinebase.parametric_model import (
+            ParametricModelFunction,
+        )
+
+        if model_name in self.models_dict:
+            raise ValueError(f"Model with ID {model_name} already exists.")
+        function_model = ParametricModelFunction(
+            model_name, function, argnames=argnames
+        )
+        self.models_dict[model_name] = function_model
 
     def remove_model(self, model_name: str):
         if model_name not in self.models_dict:
@@ -315,8 +362,12 @@ class RefinementSession:
         for i in range(len(models)):
             if isinstance(models[i], ParametricModelEquation):
                 models[i].set_profile(profiles[i])
-                models[i].calc_obj.set_residual_equation(residual_equations[i])
-                recipe.add_contribution(models[i].calc_obj, weight=weights[i])
+                models[i]._contribution.set_residual_equation(
+                    residual_equations[i]
+                )
+                recipe.add_contribution(
+                    models[i]._contribution, weight=weights[i]
+                )
             elif isinstance(models[i], ParametricModelPDF):
                 contribution = FitContribution(models[i].name)
                 contribution.add_profile_generator(models[i].calc_obj)
@@ -340,40 +391,23 @@ class RefinementSession:
                 continue
             recipe.add_variable(var, name=variable_names[i])
 
-        residual_fn = recipe.residual
-        if verbose_iterations:
-            call_counter = {"n": 0}
-
-            def _verbose_residual(p, _orig=residual_fn, _counter=call_counter):
-                r = _orig(p)
-                _counter["n"] += 1
-                if _counter["n"] <= verbose_iterations:
-                    names = recipe.getNames()
-                    print(f"--- solve() call {_counter['n']} ---")
-                    for pname, pval in zip(names, p):
-                        print(f"    {pname} = {pval}")
-                    print(
-                        "    sum(residual**2) = "
-                        f"{numpy.sum(numpy.asarray(r) ** 2):.6f}"
-                    )
-                return r
-
-            residual_fn = _verbose_residual
-
         recipe.fix("all")
-        for i in range(len(variable_names)):
-            recipe.free(variable_names[i])
-            least_squares(
-                recipe.residual,
-                recipe.getValues(),
-            )
-        return FitResults(recipe).get_results_string()
+        for variable_name in variable_names:
+            recipe.free(variable_name)
+        # least_squares(recipe.residual, recipe.getValues(), x_scale="jac")
+        leastsq(recipe.residual, recipe.getValues())
+        # NOTE: non-scalar value will raise error in `get_results_string`
+        try:
+            result_string = FitResults(recipe).get_results_string()
+        except TypeError:
+            result_string = "Refinement Finished."
+        return result_string
 
     def solve(
         self,
         profile_names,
         model_names,
-        variable_names,
+        variable_names=[],
         residual_equations=None,
         constraints=None,
         restraints=None,
@@ -406,6 +440,13 @@ class RefinementSession:
                         if sgpar_name in variable_names:
                             continue
                         variable_names.append(sgpar_name)
+                else:
+                    for submodel in model._submodels:
+                        if isinstance(submodel, ParametricModelPDF):
+                            for sgpar_name in submodel.sgpar_names:
+                                if sgpar_name in variable_names:
+                                    continue
+                                variable_names.append(sgpar_name)
 
         return self._solve(
             profiles=profiles,
