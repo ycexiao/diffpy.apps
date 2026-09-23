@@ -19,6 +19,17 @@ def anyio_backend():
     return "asyncio"
 
 
+@pytest.fixture(autouse=True)
+def clear_session():
+    # The MCP server uses a module-level singleton session; reset it so
+    # models/profiles from one test don't leak into the next.
+    from diffpy.apps.refinebase.refinement_server import session
+
+    session.clear()
+    yield
+    session.clear()
+
+
 @pytest.mark.anyio
 async def test_refine_sine():
     # C1: Set up the MCP client and do a sine refinement
