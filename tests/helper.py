@@ -9,7 +9,7 @@ from diffpy.srfit.fitbase import (
     FitRecipe,
     Profile,
 )
-from diffpy.srfit.pdf import PDFGenerator, PDFParser
+from diffpy.srfit.pdf import DebyePDFGenerator, PDFGenerator, PDFParser
 from diffpy.srfit.structure import constrainAsSpaceGroup
 from diffpy.structure.parsers import getParser
 
@@ -258,3 +258,89 @@ def run_nanoparticle_example():
         name: par.value for name, par in recipe._parameters.items()
     }
     return diffpy_pv_dict
+
+
+def run_c60_example():
+    from pyobjcryst.crystal import Crystal
+    from pyobjcryst.molecule import Molecule
+    from pyobjcryst.scatteringpower import ScatteringPowerAtom
+
+    c60xyz_path = Path(__file__).parent / "data" / "C60xyz.txt"
+    c60xyz = c60xyz_path.read_text()
+
+    c = Crystal(1, 1, 1, "P1")
+    c.SetName("c60frame")
+    # put a molecule inside the box
+    molecule = Molecule(c, "c60")
+    c.AddScatterer(molecule)
+    molecule.AddAtom(0, 0, 0, None, "center")
+    # Create the scattering power object for the carbon atoms
+    sp = ScatteringPowerAtom("C", "C")
+    c.AddScatteringPower(sp)
+    sp.SetBiso(0.25)
+    # Add the other atoms. They will be named C1, C2, ..., C60.
+    for i, l in enumerate(c60xyz.strip().splitlines()):  # noqa: E741
+        x, y, z = map(float, l.split())
+        molecule.AddAtom(x, y, z, sp, "C%i" % (i + 1))
+    profile = Profile()
+    profile.loadtxt(str(Path(__file__).parent / "data" / "C60.gr"))
+    profile.set_calculation_range(xmin=1.2, xmax=8)
+    generator = DebyePDFGenerator("G")
+    generator.setStructure(molecule)
+    generator.setQmin(0.68)
+    generator.setQmax(22)
+    contribution = FitContribution("bucky")
+    contribution.add_profile_generator(generator)
+    contribution.set_profile(profile, xname="r")
+    recipe = FitRecipe()
+    recipe.add_contribution(contribution)
+    c60 = generator.phase
+
+    # First, the isotropic thermal displacement factor.
+    Biso = recipe.create_new_variable("Biso")
+    for atom in c60.getScatterers():
+        # We have defined a 'center' atom that is a dummy, which means that it
+        # has no scattering power. It is only used as a reference point for
+        # our bond length. We don't want to constrain it.
+        if not atom.isDummy():
+            recipe.add_constraint(atom.Biso, Biso)
+    # We need to let the molecule expand. If we were modeling it as a crystal,
+    # we could let the unit cell expand. For instruction purposes, we use a
+    # Molecule to model C60, and molecules have different modeling options than
+    # crystals. To make the molecule expand from a central point, we will
+    # constrain the distance from each atom to a dummy center atom that was
+    # created with the molecule, and allow that distance to vary. (We could
+    # also let the nearest-neighbor bond lengths vary, but that would be much
+    # more difficult to set up.)
+    center = c60.center
+    # Create a new Parameter that represents the radius of the molecule. Note
+    # that we don't give it an initial value. Since the variable is being
+    # directly constrained to further below, its initial value will be inferred
+    # from the constraint.
+    radius = recipe.create_new_variable("radius")
+    for i, atom in enumerate(c60.getScatterers()):
+
+        if atom.isDummy():
+            continue
+
+        # This creates a Parameter that moves the second atom according to the
+        # bond length. Note that each Parameter needs a unique name.
+        par = c60.addBondLengthParameter("rad%i" % i, center, atom)
+        recipe.add_constraint(par, radius)
+
+    # Add the correlation term, scale. The scale is too short to effectively
+    # determine qdamp.
+    recipe.add_variable(generator.delta2, 2)
+    recipe.add_variable(generator.scale, 1.3e4)
+    leastsq(recipe.residual, recipe.get_values())
+
+    diffpy_pv_dict = {
+        name: par.value for name, par in recipe._parameters.items()
+    }
+    return diffpy_pv_dict
+
+
+if __name__ == "__main__":
+    diffpy_pv_dict = run_c60_example()
+    # diffpy_pv_dict = run_ni_example()
+    print(diffpy_pv_dict)

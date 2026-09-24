@@ -130,9 +130,7 @@ class RefinementSession:
         profile = self.profiles_dict[profile_name]
         profile.set_calculation_points(x)
 
-    def add_equation_model(
-        self, model_name: str, equation_str=None, from_model_name=None
-    ):
+    def add_equation_model(self, model_name: str, equation_str=None):
         from diffpy.apps.refinebase.parametric_model import (
             ParametricModelEquation,
         )
@@ -141,14 +139,6 @@ class RefinementSession:
             raise ValueError(f"Model with ID {model_name} already exists.")
         if equation_str is not None:
             model = ParametricModelEquation(model_name, equation_str)
-        elif from_model_name is not None:
-            if from_model_name not in self.models_dict:
-                raise ValueError(
-                    f"Model with ID {from_model_name} does not exist."
-                )
-            model = ParametricModelEquation(
-                model_name, from_model_name=from_model_name
-            )
         else:
             raise ValueError(
                 "Either equation_str or from_model must be provided."
@@ -160,18 +150,21 @@ class RefinementSession:
         model_name: str,
         structure_file_path=None,
         from_model_name=None,
+        code=None,
         library="Diffpy",
     ):
         from diffpy.apps.refinebase.parametric_model import (
-            ParametricModelPDF,
+            create_pdf_model_from_code,
+            create_pdf_model_from_file,
+            create_pdf_model_from_model,
         )
 
         if model_name in self.models_dict:
             raise ValueError(f"Model with ID {model_name} already exists.")
         if structure_file_path is not None:
-            pdf_model = ParametricModelPDF(
+            pdf_model = create_pdf_model_from_file(
                 model_name,
-                structure_file_path=structure_file_path,
+                structure_file_path,
                 library=library,
             )
         elif from_model_name is not None:
@@ -179,14 +172,17 @@ class RefinementSession:
                 raise ValueError(
                     f"Model with ID {from_model_name} does not exist."
                 )
-            pdf_model = ParametricModelPDF(
+            from_model = self.models_dict[from_model_name]
+            pdf_model = create_pdf_model_from_model(
                 model_name,
-                from_model_name=self.models_dict[from_model_name],
-                library=library,
+                from_model,
             )
+        elif code is not None:
+            pdf_model = create_pdf_model_from_code(model_name, code)
         else:
             raise ValueError(
-                "Either structure_file_path or from_model must be provided."
+                "Either structure_file_path, from_model_name, or code "
+                "must be provided."
             )
         self.models_dict[model_name] = pdf_model
 
@@ -303,6 +299,109 @@ class RefinementSession:
                 f"Model '{model_name}' is not a ParametricModel instance."
             )
         model.constrain_symmetry(space_group)
+
+    def _get_pdf_model(self, model_name):
+        if model_name not in self.models_dict:
+            raise ValueError(f"Model with ID {model_name} does not exist.")
+        model = self.models_dict[model_name]
+        if not isinstance(model, ParametricModelPDF):
+            raise ValueError(
+                f"Model '{model_name}' is not a ParametricModelPDF instance."
+            )
+        return model
+
+    def _get_scatterer(self, model, atom_index):
+        return model.calc_obj.phase.getScatterers()[atom_index]
+
+    @check_model_exists
+    def add_pdf_bond_length_parameter(
+        self,
+        model_name,
+        name,
+        atom1_index,
+        atom2_index,
+        value=None,
+        const=None,
+    ):
+        model = self._get_pdf_model(model_name)
+        atom1 = self._get_scatterer(model, atom1_index)
+        atom2 = self._get_scatterer(model, atom2_index)
+        model.add_bond_length_parameter(
+            name, atom1, atom2, value=value, const=const
+        )
+
+    @check_model_exists
+    def add_pdf_bond_angle_parameter(
+        self,
+        model_name,
+        name,
+        atom1_index,
+        atom2_index,
+        atom3_index,
+        value=None,
+        const=None,
+    ):
+        model = self._get_pdf_model(model_name)
+        atom1 = self._get_scatterer(model, atom1_index)
+        atom2 = self._get_scatterer(model, atom2_index)
+        atom3 = self._get_scatterer(model, atom3_index)
+        model.add_bond_angle_parameter(
+            name, atom1, atom2, atom3, value=value, const=const
+        )
+
+    @check_model_exists
+    def add_pdf_dihedral_angle_parameter(
+        self,
+        model_name,
+        name,
+        atom1_index,
+        atom2_index,
+        atom3_index,
+        atom4_index,
+        value=None,
+        const=None,
+    ):
+        model = self._get_pdf_model(model_name)
+        atom1 = self._get_scatterer(model, atom1_index)
+        atom2 = self._get_scatterer(model, atom2_index)
+        atom3 = self._get_scatterer(model, atom3_index)
+        atom4 = self._get_scatterer(model, atom4_index)
+        model.add_dihedral_angle_parameter(
+            name,
+            atom1,
+            atom2,
+            atom3,
+            atom4,
+            value=value,
+            const=const,
+        )
+
+    def restrain_pdf_bond_length_parameter(
+        self, variable_name, length, sigma, delta, scaled=False
+    ):
+        model = self._get_pdf_model(variable_name.split(".")[0])
+        par = self.get_variable(variable_name)["obj"]
+        return model.restrain_bond_length_parameter(
+            par, length, sigma, delta, scaled=scaled
+        )
+
+    def restrain_pdf_bond_angle_parameter(
+        self, variable_name, angle, sigma, delta, scaled=False
+    ):
+        model = self._get_pdf_model(variable_name.split(".")[0])
+        par = self.get_variable(variable_name)["obj"]
+        return model.restrain_bond_angle_parameter(
+            par, angle, sigma, delta, scaled=scaled
+        )
+
+    def restrain_pdf_dihedral_angle_parameter(
+        self, variable_name, angle, sigma, delta, scaled=False
+    ):
+        model = self._get_pdf_model(variable_name.split(".")[0])
+        par = self.get_variable(variable_name)["obj"]
+        return model.restrain_dihedral_angle_parameter(
+            par, angle, sigma, delta, scaled=scaled
+        )
 
     def set_variables_value(self, name_value_dict):
         for variable_name, value in name_value_dict.items():
