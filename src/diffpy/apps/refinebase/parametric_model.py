@@ -8,6 +8,7 @@ from pyobjcryst import loadCrystal
 
 from diffpy.srfit.fitbase import FitContribution
 from diffpy.srfit.fitbase.parameter import Parameter, ParameterProxy
+from diffpy.srfit.pdf.debyepdfgenerator import DebyePDFGenerator
 from diffpy.srfit.pdf.pdfgenerator import PDFGenerator
 from diffpy.srfit.structure import constrain_as_space_group
 from diffpy.srfit.structure.diffpyparset import DiffpyStructureParSet
@@ -35,19 +36,19 @@ class ParametricModel:
         self, parameterset, prefix="", old_graph=None
     ):
         parent_name = f"{prefix}{parameterset.name}"
-        self._graph.add_node(parent_name, parameter=parameterset)
+        self._graph.add_node(parent_name, obj=parameterset)
         for par in parameterset._iter_local_parameters(regexp=re.compile("")):
             par_node_id = f"{parent_name}.{par.name}"
             if not old_graph or par_node_id not in old_graph.nodes:
                 self._graph.add_node(
                     par_node_id,
-                    parameter=par,
+                    obj=par,
                     constrained_or_constant=False,
                 )
             else:
                 self._graph.add_node(
                     par_node_id,
-                    parameter=par,
+                    obj=par,
                     constrained_or_constant=old_graph.nodes[par_node_id][
                         "constrained_or_constant"
                     ],
@@ -59,7 +60,7 @@ class ParametricModel:
                 # obj is handled as unconstrained by default
                 self._graph.add_node(
                     child_name,
-                    parameter=None,
+                    obj=None,
                     constrained_or_constant=False,
                 )
                 self._graph.add_edge(parent_name, child_name)
@@ -105,7 +106,7 @@ class ParametricModel:
         if f"{self.name}.{submodel.name}" not in self._graph.nodes:
             self._graph.add_node(
                 symbol,
-                parameter=None,
+                obj=submodel,
                 constrained_or_constant=False,
             )
             self._graph.add_edge(self.name, symbol)
@@ -119,29 +120,23 @@ class ParametricModel:
     @property
     def parameters(self):
         return {
-            par_node_id: self._graph.nodes[par_node_id]["parameter"]
+            par_node_id: self._graph.nodes[par_node_id]["obj"]
             for par_node_id in self._graph.nodes
-            if isinstance(
-                self._graph.nodes[par_node_id]["parameter"], Parameter
-            )
+            if isinstance(self._graph.nodes[par_node_id]["obj"], Parameter)
         }
 
     @property
     def independent_parameters(self):
         return {
-            par_node_id: self._graph.nodes[par_node_id]["parameter"]
+            par_node_id: self._graph.nodes[par_node_id]["obj"]
             for par_node_id in self._graph.nodes
-            if isinstance(
-                self._graph.nodes[par_node_id]["parameter"], Parameter
-            )
+            if isinstance(self._graph.nodes[par_node_id]["obj"], Parameter)
             and not (
                 (
-                    hasattr(
-                        self._graph.nodes[par_node_id]["parameter"], "const"
-                    )
-                    and self._graph.nodes[par_node_id]["parameter"].const
+                    hasattr(self._graph.nodes[par_node_id]["obj"], "const")
+                    and self._graph.nodes[par_node_id]["obj"].const
                 )
-                or self._graph.nodes[par_node_id]["parameter"].constrained
+                or self._graph.nodes[par_node_id]["obj"].constrained
                 # NOTE: this is a workaround for the constraints not reflected
                 #   in par.constrained
                 or self._graph.nodes[par_node_id]["constrained_or_constant"]
@@ -250,7 +245,7 @@ class ParametricModelFunction(ParametricModel):
 class ParametricModelPDF(ParametricModel):
     # NOTE: qmin, qmax, stype(scattering type) are meta handled
     #   throughout the loaded profile in the refinement session
-    def __init__(self, name, structure, spacegroup_symbol="P1"):
+    def __init__(self, name, structure, spacegroup_symbol="P1", finite=False):
         """
         Create a ParametricModelPDF instance from a structure object.
 
@@ -259,7 +254,11 @@ class ParametricModelPDF(ParametricModel):
         (e.g. shared from another ParametricModelPDF).
         """
         super().__init__(name=name)
-        self.calc_obj = PDFGenerator(name)
+
+        if not finite:
+            self.calc_obj = PDFGenerator(name)
+        else:
+            self.calc_obj = DebyePDFGenerator(name)
         if isinstance(
             structure, (DiffpyStructureParSet, ObjCrystCrystalParSet)
         ):
@@ -410,42 +409,66 @@ class ParametricModelPDF(ParametricModel):
 
     @check_molecule_or_molatom
     def add_bond_length_parameter(
-        self, name, atom1, atom2, value=None, const=None
+        self,
+        par_name,
+        atom1,
+        atom2,
+        value=None,
+        const=None,
+        parent_node_name=None,
     ):
         phase = self.calc_obj.phase
-        phase.addBondLengthParameter(name, atom1, atom2, value, const)
-        self._rebuild_graph()
+        par = phase.addBondLengthParameter(
+            par_name, atom1, atom2, value, const
+        )
+        new_node_name = f"{parent_node_name}.{par_name}"
+        self._graph.add_node(
+            new_node_name, obj=par, constrained_or_constant=False
+        )
+        self._graph.add_edge(parent_node_name, new_node_name)
 
     @check_molecule_or_molatom
     def add_bond_angle_parameter(
         self,
-        name,
+        par_name,
         atom1,
         atom2,
         atom3,
         value=None,
         const=None,
+        parent_node_name=None,
     ):
         phase = self.calc_obj.phase
-        phase.addBondAngleParameter(name, atom1, atom2, atom3, value, const)
-        self._rebuild_graph()
+        par = phase.addBondAngleParameter(
+            par_name, atom1, atom2, atom3, value, const
+        )
+        new_node_name = f"{parent_node_name}.{par_name}"
+        self._graph.add_node(
+            new_node_name, obj=par, constrained_or_constant=False
+        )
+        self._graph.add_edge(parent_node_name, new_node_name)
 
     @check_molecule_or_molatom
     def add_dihedral_angle_parameter(
         self,
-        name,
+        par_name,
         atom1,
         atom2,
         atom3,
         atom4,
         value=None,
         const=None,
+        parent_node_name=None,
     ):
         phase = self.calc_obj.phase
-        phase.addDihedralAngleParameter(
-            name, atom1, atom2, atom3, atom4, value, const
+        par = phase.addDihedralAngleParameter(
+            par_name, atom1, atom2, atom3, atom4, value, const
         )
-        self._rebuild_graph()
+        new_node_name = f"{parent_node_name}.{par_name}"
+        self._graph.add_node(
+            new_node_name, obj=par, constrained_or_constant=False
+        )
+        self._graph.add_edge(parent_node_name, new_node_name)
 
     @check_molecule_or_molatom
     def restrain_bond_length_parameter(
@@ -521,7 +544,9 @@ DUAL_ORIGIN_SG_NUMBERS = {
 }
 
 
-def create_pdf_model_from_file(name, structure_file_path, library="Diffpy"):
+def create_pdf_model_from_file(
+    name, structure_file_path, library="Diffpy", finite=False
+):
     """Create a ParametricModelPDF by parsing a structure file."""
     stru_parser = get_parser("auto")
     structure = stru_parser.parse(Path(structure_file_path).read_text())
@@ -532,7 +557,7 @@ def create_pdf_model_from_file(name, structure_file_path, library="Diffpy"):
     ) or library == "ObjCryst":
         structure = loadCrystal(structure_file_path)
     return ParametricModelPDF(
-        name, structure, spacegroup_symbol=spacegroup_symbol
+        name, structure, spacegroup_symbol=spacegroup_symbol, finite=finite
     )
 
 
@@ -546,21 +571,26 @@ def create_pdf_model_from_model(name, from_model):
 
 
 def create_pdf_model_from_code(
-    name, code, structure_name="structure", spacegroup_symbol="P1"
+    name,
+    code,
+    spacegroup_symbol="P1",
+    global_namespace={},
+    local_structure_name="structure",
+    finite=False,
 ):
     """Create a ParametricModelPDF by executing code that builds a structure.
 
     The code must assign the structure/crystal object to a variable named
     structure_name (default "structure") in its local namespace.
     """
-    global_namespace = {}
     local_namespace = {}
     exec(code, global_namespace, local_namespace)
-    if structure_name not in local_namespace:
+    if local_structure_name not in local_namespace:
         raise ValueError(
-            f"Structure named {structure_name} not found in the executed code."
+            f"Structure named {local_structure_name} not "
+            "found in the executed code."
         )
-    structure = local_namespace[structure_name]
+    structure = local_namespace[local_structure_name]
     if not type(structure).__module__.startswith("pyobjcryst"):
         if "spacegroup_symbol" not in local_namespace:
             logging.warning(
@@ -583,10 +613,10 @@ def create_pdf_model_from_code(
         else:
             logging.warning(
                 "Could not determine a space group for the structure named "
-                f"{structure_name}. The default 'spacegroup_symbol' "
+                f"{local_structure_name}. The default 'spacegroup_symbol' "
                 f"{spacegroup_symbol} will be used."
             )
 
     return ParametricModelPDF(
-        name, structure, spacegroup_symbol=spacegroup_symbol
+        name, structure, spacegroup_symbol=spacegroup_symbol, finite=finite
     )
