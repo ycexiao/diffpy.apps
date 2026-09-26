@@ -212,3 +212,49 @@ def run_multi_contribution_example():
         name: par.value for name, par in recipe._parameters.items()
     }
     return diffpy_pv_dict
+
+
+def run_nanoparticle_example():
+    ciffile = Path(__file__).parent / "data/pb.cif"
+    grdata = Path(__file__).parent / "data/pb_100_qmin1.gr"
+
+    pdfprofile = Profile()
+    pdfparser = PDFParser()
+    pdfparser.parse_file(grdata)
+    pdfprofile.load_parsed_data(pdfparser)
+    pdfprofile.set_calculation_range(xmin=0.1, xmax=20)
+
+    pdfcontribution = FitContribution("pdf")
+    pdfcontribution.set_profile(pdfprofile, xname="r")
+
+    pdfgenerator = PDFGenerator("G")
+    pdfgenerator.setQmax(30.0)
+    stru = loadCrystal(ciffile)
+    pdfgenerator.setStructure(stru)
+    pdfcontribution.add_profile_generator(pdfgenerator)
+
+    # Register the nanoparticle shape factor.
+    from diffpy.srfit.pdf.characteristicfunctions import spherical_particle
+
+    pdfcontribution.register_function(spherical_particle, name="f")
+
+    # Now we set up the fitting equation.
+    pdfcontribution.set_equation("f * G")
+
+    # Now make the recipe. Make sure we fit the characteristic function shape
+    # parameters, in this case 'psize', which is the diameter of the particle.
+    recipe = FitRecipe()
+    recipe.add_contribution(pdfcontribution)
+
+    phase = pdfgenerator.phase
+    for par in phase.sgpars:
+        recipe.add_variable(par)
+
+    recipe.add_variable(pdfcontribution.particle_diameter, 20)
+    recipe.add_variable(pdfgenerator.scale, 1)
+    recipe.add_variable(pdfgenerator.delta2, 0)
+    leastsq(recipe.residual, recipe.get_values())
+    diffpy_pv_dict = {
+        name: par.value for name, par in recipe._parameters.items()
+    }
+    return diffpy_pv_dict

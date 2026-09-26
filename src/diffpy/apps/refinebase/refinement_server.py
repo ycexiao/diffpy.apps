@@ -2,6 +2,7 @@ import inspect
 import json
 import logging
 import uuid
+from collections.abc import Callable
 from functools import wraps
 from pathlib import Path
 from typing import Annotated
@@ -60,9 +61,18 @@ async def refinement_playbook():
 async def add_profile_from_file(
     profile_path: Annotated[str, "Path to the profile file"],
     profile_name: Annotated[str, "Unique name for the profile"] = None,
+    xname: Annotated[str, "Name of the x-axis for the profile"] = "x",
+    yname: Annotated[str, "Name of the y-axis for the profile"] = "y",
+    dyname: Annotated[str, "Name of the y-uncertainty for the profile"] = "dy",
 ) -> str:
     """Add a profile to the refinement session from a file."""
-    session.add_profile_from_file(profile_path, profile_name=profile_name)
+    session.add_profile_from_file(
+        profile_path,
+        profile_name=profile_name,
+        xname=xname,
+        yname=yname,
+        dyname=dyname,
+    )
     return f"Profile {profile_name} added successfully."
 
 
@@ -74,10 +84,20 @@ async def add_profile_from_arrays(
     dx: Annotated[list, "Uncertainties in the x-values"] = None,
     dy: Annotated[list, "Uncertainties in the y-values"] = None,
     profile_name: Annotated[str, "Unique name for the profile"] = None,
+    xname: Annotated[str, "Name of the x-axis for the profile"] = "x",
+    yname: Annotated[str, "Name of the y-axis for the profile"] = "y",
+    dyname: Annotated[str, "Name of the y-uncertainty for the profile"] = "dy",
 ) -> str:
     """Add a profile to the refinement session from arrays."""
     session.add_profile_from_arrays(
-        xarray, yarray, dx=dx, dy=dy, profile_name=profile_name
+        xarray,
+        yarray,
+        dx=dx,
+        dy=dy,
+        profile_name=profile_name,
+        xname=xname,
+        yname=yname,
+        dyname=dyname,
     )
     return f"Profile {profile_name} added successfully."
 
@@ -185,6 +205,44 @@ async def add_pdf_model(
         model_name=model_name,
         structure_file_path=structure_file_path,
         from_model_name=from_model_name,
+    )
+    return f"Model {model_name} added successfully."
+
+
+@mcp.tool()
+@tool_errors
+async def add_function_model(
+    model_name: Annotated[str, "Name of the parametric model"],
+    function: Annotated[Callable | str, "Function or callable for the model"],
+    argnames: Annotated[
+        list[str] | None, "Argument names for the function"
+    ] = None,
+) -> str:
+    """
+    Add a function model to the refinement session.
+
+    function can be either a callable or a string representing
+    the pre-defined function.
+    One and only one of func or characteristic_func_name must be provided.
+    Allowed value for characteristic_func_name:
+        "spherical_particle",
+        "spheroidal_particle",
+        "lognormal_spherical_particle",
+        "sheet_particle",
+        "shell_particle",
+        "SASCF",
+        "sphericalCF",
+        "spheroidalCF",
+        "spheroidalCF2",
+        "lognormalSphericalCF",
+        "sheetCF",
+        "shellCF",
+        "shellCF2",
+    """
+    session.add_function_model(
+        model_name=model_name,
+        function=function,
+        argnames=argnames,
     )
     return f"Model {model_name} added successfully."
 
@@ -299,14 +357,11 @@ async def combine_models(
     child_model_names: Annotated[
         list[str], "Names of the child parametric models"
     ],
-    symbol: Annotated[
-        str, "Symbol to use for child model in the parent model's equation"
-    ],
 ) -> str:
     """
     Combine two parametric models by registering the child to the parent model.
     """
-    session.combine_models(parent_model_name, child_model_names, symbol)
+    session.combine_models(parent_model_name, child_model_names)
     return (
         f"Models {parent_model_name} and "
         f"{child_model_names} combined successfully."

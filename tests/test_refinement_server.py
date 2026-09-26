@@ -2,7 +2,11 @@ from pathlib import Path
 
 import numpy
 import pytest
-from helper import run_ni_example
+from helper import (
+    run_multi_contribution_example,
+    run_nanoparticle_example,
+    run_ni_example,
+)
 from mcp import Client
 
 from diffpy.apps.refinebase.refinement_server import mcp
@@ -13,6 +17,17 @@ _DATA_DIR = Path(__file__).parent / "data"
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
+
+
+@pytest.fixture(autouse=True)
+def clear_session():
+    # The MCP server uses a module-level singleton session; reset it so
+    # models/profiles from one test don't leak into the next.
+    from diffpy.apps.refinebase.refinement_server import session
+
+    session.clear()
+    yield
+    session.clear()
 
 
 @pytest.mark.anyio
@@ -116,7 +131,6 @@ async def test_refine_ni():
             {
                 "parent_model_name": "ni_model",
                 "child_model_names": ["pdf"],
-                "symbol": "pdf",
             },
         )
         variable_names = [
@@ -158,3 +172,280 @@ async def test_refine_ni():
                 ni_refined_parameters[cmi_name],
                 rtol=1e-2,
             )
+
+
+@pytest.mark.anyio
+async def test_refine_multi_contribution():
+    from diffpy.apps.refinebase.refinement_server import session
+
+    multi_contribution_refined_parameters = run_multi_contribution_example()
+
+    async with Client(mcp, raise_exceptions=True) as mcp_client:
+        await mcp_client.call_tool(
+            "add_profile_from_file",
+            {
+                "profile_path": str(_DATA_DIR / "ni-q27r60-xray.gr"),
+                "profile_name": "ni_xray",
+            },
+        )
+        await mcp_client.call_tool(
+            "add_profile_from_file",
+            {
+                "profile_path": str(_DATA_DIR / "ni-q27r100-neutron.gr"),
+                "profile_name": "ni_neutron",
+            },
+        )
+        await mcp_client.call_tool(
+            "add_profile_from_file",
+            {
+                "profile_path": str(_DATA_DIR / "si-q27r60-xray.gr"),
+                "profile_name": "si_xray",
+            },
+        )
+        await mcp_client.call_tool(
+            "add_profile_from_file",
+            {
+                "profile_path": str(_DATA_DIR / "si90ni10-q27r60-xray.gr"),
+                "profile_name": "total_xray",
+            },
+        )
+        for profile_name in [
+            "ni_xray",
+            "ni_neutron",
+            "si_xray",
+            "total_xray",
+        ]:
+            await mcp_client.call_tool(
+                "set_profile_calculation_range",
+                {"profile_name": profile_name, "xmax": 20},
+            )
+        await mcp_client.call_tool(
+            "add_pdf_model",
+            {
+                "structure_file_path": str(_DATA_DIR / "Ni.cif"),
+                "model_name": "pdf_ni",
+            },
+        )
+        await mcp_client.call_tool(
+            "constrain_pdf_model_space_group_symmetry",
+            {"model_name": "pdf_ni"},
+        )
+        await mcp_client.call_tool(
+            "add_pdf_model",
+            {"from_model_name": "pdf_ni", "model_name": "pdf_ni_neutron"},
+        )
+        await mcp_client.call_tool(
+            "add_pdf_model",
+            {"from_model_name": "pdf_ni", "model_name": "pdf_ni_partial"},
+        )
+        await mcp_client.call_tool(
+            "add_pdf_model",
+            {
+                "structure_file_path": str(_DATA_DIR / "si.cif"),
+                "model_name": "pdf_si",
+            },
+        )
+        await mcp_client.call_tool(
+            "constrain_pdf_model_space_group_symmetry",
+            {"model_name": "pdf_si"},
+        )
+        await mcp_client.call_tool(
+            "add_pdf_model",
+            {"from_model_name": "pdf_si", "model_name": "pdf_si_partial"},
+        )
+        await mcp_client.call_tool(
+            "add_equation_model",
+            {
+                "model_name": "main",
+                "equation_str": "scale * (pdf_ni_partial + pdf_si_partial)",
+            },
+        )
+        await mcp_client.call_tool(
+            "combine_models",
+            {
+                "parent_model_name": "main",
+                "child_model_names": ["pdf_ni_partial", "pdf_si_partial"],
+            },
+        )
+        await mcp_client.call_tool(
+            "set_variables_value",
+            {
+                "name_value_dict": {
+                    "pdf_ni.qdamp": 0.055,
+                    "pdf_ni_neutron.qdamp": 0.030,
+                    "pdf_ni_partial.qdamp": 0.052,
+                    "pdf_si.qdamp": 0.051,
+                    "pdf_si_partial.qdamp": 0.052,
+                    "main.scale": 1.0,
+                    "pdf_si.scale": 1.0,
+                    "pdf_ni.scale": 1.0,
+                },
+            },
+        )
+        await mcp_client.call_tool(
+            "solve",
+            {
+                "profile_names": [
+                    "ni_xray",
+                    "ni_neutron",
+                    "si_xray",
+                    "total_xray",
+                ],
+                "model_names": ["pdf_ni", "pdf_ni_neutron", "pdf_si", "main"],
+                "residual_equations": ["resv", "resv", "resv", "resv"],
+                "constraints": [
+                    {
+                        "pscale": 0.8,
+                        "ni_delta2": 2.5,
+                        "si_delta2": 2.5,
+                    },
+                    {
+                        "pdf_ni.delta2": "ni_delta2",
+                        "pdf_ni_neutron.delta2": "ni_delta2",
+                        "main.pdf_ni_partial.delta2": "ni_delta2",
+                        "pdf_si.delta2": "si_delta2",
+                        "main.pdf_si_partial.delta2": "si_delta2",
+                        "main.pdf_si_partial.scale": "1 - pscale",
+                        "main.pdf_ni_partial.scale": "pscale",
+                    },
+                ],
+                "variable_names": [
+                    "pdf_ni.scale",
+                    "pdf_si.scale",
+                    "pdf_ni_neutron.scale",
+                    "main.scale",
+                    "pscale",
+                    "pdf_ni.phase.lattice.a",
+                    "pdf_ni.phase.Ni0.Uiso",
+                    "pdf_si.phase.a",
+                    "pdf_si.phase.Si.Biso",
+                    "ni_delta2",
+                    "si_delta2",
+                ],
+            },
+        )
+        name_to_cmi_name = {
+            "pdf_ni.scale": "xscale_ni",
+            "pdf_si.scale": "xscale_si",
+            "pdf_ni_neutron.scale": "nscale_ni",
+            "main.scale": "xscale_sini",
+            "pscale": "pscale_sini_ni",
+            "pdf_ni.phase.lattice.a": "a_ni",
+            "pdf_si.phase.a": "a_si",
+            "ni_delta2": "delta2_ni",
+            "si_delta2": "delta2_si",
+        }
+        for name, cmi_name in name_to_cmi_name.items():
+            assert numpy.isclose(
+                session.get_variable(name)["value"],
+                multi_contribution_refined_parameters[cmi_name],
+                rtol=1e-2,
+            )
+        assert numpy.isclose(
+            session.get_variable("pdf_ni.phase.Ni0.Uiso")["value"]
+            * 8
+            * numpy.pi**2,
+            multi_contribution_refined_parameters["Biso_0_ni"],
+            rtol=1e-2,
+        )
+        assert numpy.isclose(
+            session.get_variable("pdf_si.phase.Si.Biso")["value"],
+            multi_contribution_refined_parameters["Biso_0_si"],
+            rtol=1e-2,
+        )
+
+
+@pytest.mark.anyio
+async def test_refine_nanoparticle_example():
+    from diffpy.apps.refinebase.refinement_server import session
+
+    refined_parameters = run_nanoparticle_example()
+
+    async with Client(mcp, raise_exceptions=True) as mcp_client:
+        await mcp_client.call_tool(
+            "add_profile_from_file",
+            {
+                "profile_path": str(_DATA_DIR / "pb_100_qmin1.gr"),
+                "profile_name": "pb",
+            },
+        )
+        await mcp_client.call_tool(
+            "set_profile_calculation_range",
+            {"profile_name": "pb", "xmin": 0.1, "xmax": 20.0},
+        )
+        await mcp_client.call_tool(
+            "update_profile_meta",
+            {"profile_name": "pb", "meta": {"qmax": 30.0}},
+        )
+        await mcp_client.call_tool(
+            "add_function_model",
+            {
+                "model_name": "f",
+                "function": "spherical_particle",
+                "argnames": ["x", "psize"],
+            },
+        )
+        await mcp_client.call_tool(
+            "add_pdf_model",
+            {
+                "model_name": "pdf",
+                "structure_file_path": str(_DATA_DIR / "pb.cif"),
+            },
+        )
+        await mcp_client.call_tool(
+            "constrain_pdf_model_space_group_symmetry",
+            {"model_name": "pdf"},
+        )
+        await mcp_client.call_tool(
+            "add_equation_model",
+            {"model_name": "main", "equation_str": "f*pdf"},
+        )
+        await mcp_client.call_tool(
+            "combine_models",
+            {
+                "parent_model_name": "main",
+                "child_model_names": ["f", "pdf"],
+            },
+        )
+        await mcp_client.call_tool(
+            "set_variables_value",
+            {
+                "name_value_dict": {
+                    "f.psize": 20,
+                    "pdf.scale": 1,
+                    "pdf.delta2": 0,
+                    "pdf.phase.Pb0.Uiso": 0.5 / 8 / numpy.pi**2,
+                },
+            },
+        )
+        await mcp_client.call_tool(
+            "solve",
+            {
+                "profile_names": ["pb"],
+                "model_names": ["main"],
+                "variable_names": [
+                    "f.psize",
+                    "pdf.scale",
+                    "pdf.delta2",
+                ],
+                "include_sgpars": True,
+            },
+        )
+        name_to_cmi_name = {
+            "pdf.phase.lattice.a": "a",
+            "f.psize": "particle_diameter",
+            "pdf.scale": "scale",
+            "pdf.delta2": "delta2",
+        }
+        for name, cmi_name in name_to_cmi_name.items():
+            assert numpy.isclose(
+                session.get_variable(name)["value"],
+                refined_parameters[cmi_name],
+                rtol=1e-2,
+            )
+        assert numpy.isclose(
+            session.get_variable("pdf.phase.Pb0.Uiso")["value"]
+            * (8 * numpy.pi**2),
+            refined_parameters["Biso_0"],
+            rtol=1e-2,
+        )

@@ -1,7 +1,11 @@
 from pathlib import Path
 
 import numpy
-from helper import run_multi_contribution_example, run_ni_example
+from helper import (
+    run_multi_contribution_example,
+    run_nanoparticle_example,
+    run_ni_example,
+)
 
 from diffpy.apps.refinebase.refinement_session import RefinementSession
 
@@ -12,10 +16,8 @@ def test_refine_sine(sine_profile):
     # C1: Refinement session without additional calculator or functions
     session = RefinementSession()
     session.add_equation_model(model_name="sub", equation_str="a*x")
-    session.add_equation_model(model_name="main", equation_str="A*sin(u)")
-    session.combine_models(
-        parent_model_name="main", child_model_names=["sub"], symbol="u"
-    )
+    session.add_equation_model(model_name="main", equation_str="A*sin(sub)")
+    session.combine_models(parent_model_name="main", child_model_names=["sub"])
     session.set_variables_value(
         name_value_dict={
             "main.A": 0.8,
@@ -281,5 +283,70 @@ def test_refine_multi_contribution():
     assert numpy.isclose(
         session.get_variable("pdf_si.phase.Si.Biso")["value"],
         multi_contribution_refined_parameters["Biso_0_si"],
+        rtol=1e-2,
+    )
+
+
+def test_refine_nanoparticle_example():
+    session = RefinementSession()
+    session.add_profile_from_file(
+        profile_path=str(_DATA_DIR / "pb_100_qmin1.gr"),
+        profile_name="pb",
+    )
+    session.set_profile_calculation_range(
+        profile_name="pb", xmin=0.1, xmax=20.0
+    )
+    session.update_profile_meta(profile_name="pb", meta={"qmax": 30.0})
+    # default argname is ['r', 'particle_diameter']
+    # xname must match the one in profile
+    # default xname in profile is "x"
+    session.add_function_model(
+        function="spherical_particle", model_name="f", argnames=["x", "psize"]
+    )
+    session.add_pdf_model(
+        model_name="pdf",
+        structure_file_path=str(_DATA_DIR / "pb.cif"),
+    )
+    session.constrain_pdf_model_space_group_symmetry(model_name="pdf")
+    session.add_equation_model(model_name="main", equation_str="f*pdf")
+    session.combine_models(
+        parent_model_name="main", child_model_names=["f", "pdf"]
+    )
+    session.set_variables_value(
+        {
+            "f.psize": 20,
+            "pdf.scale": 1,
+            "pdf.delta2": 0,
+            "pdf.phase.Pb0.Uiso": 0.5 / 8 / numpy.pi**2,
+        }
+    )
+    refined_parameters = session.solve(
+        profile_names=["pb"],
+        model_names=["main"],
+        variable_names=[
+            "f.psize",
+            "pdf.scale",
+            "pdf.delta2",
+        ],
+        include_sgpars=True,
+    )
+    refined_parameters = run_nanoparticle_example()
+    name_to_cmi_name = {
+        "pdf.phase.lattice.a": "a",
+        "f.psize": "particle_diameter",
+        "pdf.scale": "scale",
+        "pdf.delta2": "delta2",
+    }
+    for name, cmi_name in name_to_cmi_name.items():
+        assert numpy.isclose(
+            session.get_variable(name)["value"],
+            refined_parameters[cmi_name],
+            rtol=1e-2,
+        )
+
+    assert numpy.isclose(
+        session.get_variable("pdf.phase.Pb0.Uiso")["value"]
+        * (8 * numpy.pi**2),
+        refined_parameters["Biso_0"],
         rtol=1e-2,
     )
