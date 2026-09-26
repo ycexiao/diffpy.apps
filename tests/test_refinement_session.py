@@ -2,10 +2,10 @@ from pathlib import Path
 
 import numpy
 from helper import (
+    run_c60_example,
     run_multi_contribution_example,
     run_nanoparticle_example,
     run_ni_example,
-    run_c60_example,
 )
 
 from diffpy.apps.refinebase.refinement_session import RefinementSession
@@ -354,7 +354,7 @@ def test_refine_nanoparticle_example():
 
 
 def test_refine_c60_example():
-    make_c60_py = (_DATA_DIR / "make_c60.py").read_text()
+    make_c60_py = (_DATA_DIR / "make_c60.txt").read_text()
     session = RefinementSession()
     session.add_profile_from_file(
         profile_path=str(_DATA_DIR / "C60.gr"), profile_name="c60", xname="r"
@@ -367,7 +367,7 @@ def test_refine_c60_example():
         model_name="pdf",
         code=make_c60_py,
         local_structure_name="molecule",  # The structure name in 'code'
-        global_namespace={"c60xyz_path": str(_DATA_DIR / "C60xyz.txt")},
+        global_namespace={"c60xyz_path": str(_DATA_DIR / "c60xyz.txt")},
         finite=True,
     )
     for i in range(1, 61):
